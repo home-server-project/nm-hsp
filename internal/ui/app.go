@@ -14,9 +14,11 @@ import (
 	"github.com/home-server-project/nm-hsp/internal/model"
 )
 
-// SnapshotSource is the read-only data contract consumed by the TUI.
-type SnapshotSource interface {
+// NetworkSource is the NetworkManager data contract consumed by the TUI.
+type NetworkSource interface {
 	Snapshot(context.Context) (model.Snapshot, error)
+	EthernetProfile(context.Context, string, string) (model.EthernetProfile, error)
+	SaveEthernetProfile(context.Context, model.EthernetProfile) (model.EthernetProfile, error)
 }
 
 type snapshotMsg struct {
@@ -27,20 +29,40 @@ type snapshotErrMsg struct {
 	err error
 }
 
-// Model is the read-only NetworkManager-HSP terminal interface.
-type Model struct {
-	source   SnapshotSource
-	snapshot model.Snapshot
-	width    int
-	height   int
-	cursor   int
-	expanded bool
-	loading  bool
-	err      error
+type ethernetProfileMsg struct {
+	profile model.EthernetProfile
 }
 
-// New creates a read-only TUI model.
-func New(source SnapshotSource) Model {
+type ethernetProfileErrMsg struct {
+	err error
+}
+
+type ethernetSavedMsg struct {
+	profile model.EthernetProfile
+}
+
+type ethernetSaveErrMsg struct {
+	err error
+}
+
+// Model is the NetworkManager-HSP terminal interface.
+type Model struct {
+	source      NetworkSource
+	snapshot    model.Snapshot
+	width       int
+	height      int
+	cursor      int
+	expanded    bool
+	loading     bool
+	formLoading bool
+	formSaving  bool
+	form        *ethernetForm
+	err         error
+	notice      string
+}
+
+// New creates the TUI model.
+func New(source NetworkSource) Model {
 	return Model{
 		source:  source,
 		loading: true,
@@ -52,8 +74,7 @@ func (m Model) Init() tea.Cmd {
 	return m.loadSnapshot()
 }
 
-// Update handles terminal input and refresh events. Checkpoint 3 contains no
-// network-changing actions.
+// Update handles dashboard navigation and the Checkpoint 4 Ethernet form.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -70,30 +91,100 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 
+	case ethernetProfileMsg:
+		m.formLoading = false
+		m.form = newEthernetForm(msg.profile)
+		m.err = nil
+
+	case ethernetProfileErrMsg:
+		m.formLoading = false
+		m.err = msg.err
+
+	case ethernetSavedMsg:
+		m.formSaving = false
+		m.form = nil
+		m.notice = "Ethernet profile saved. Live networking was not restarted."
+		m.err = nil
+		m.loading = true
+		return m, m.loadSnapshot()
+
+	case ethernetSaveErrMsg:
+		m.formSaving = false
+		if m.form != nil {
+			m.form.message = msg.err.Error()
+			m.form.messageIsError = true
+		}
+
 	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+
+		if m.form != nil {
+			if m.formSaving {
+				return m, nil
+			}
+
+			action, cmd := m.form.handleKey(msg)
+			switch action {
+			case formActionCancel:
+				m.form = nil
+				m.err = nil
+				return m, nil
+
+			case formActionSave:
+				profile, err := m.form.buildProfile()
+				if err != nil {
+					m.form.message = err.Error()
+					m.form.messageIsError = true
+					return m, nil
+				}
+				m.formSaving = true
+				return m, m.saveEthernetProfile(profile)
+			}
+			return m, cmd
+		}
+
 		switch msg.String() {
-		case "ctrl+c", "q", "esc":
+		case "q", "esc":
 			return m, tea.Quit
 
 		case "up", "k":
+			m.notice = ""
 			if m.cursor > 0 {
 				m.cursor--
 				m.expanded = false
 			}
 
 		case "down", "j":
+			m.notice = ""
 			if m.cursor+1 < len(m.visibleDevices()) {
 				m.cursor++
 				m.expanded = false
 			}
 
 		case "enter":
+			m.notice = ""
+			devices := m.visibleDevices()
+			if len(devices) == 0 {
+				break
+			}
+
+			device := devices[m.cursor]
+			if device.Kind == model.DeviceKindEthernet {
+				return m, m.openEthernetForm(device)
+			}
+			m.expanded = !m.expanded
+
+		case "d":
+			m.notice = ""
 			if len(m.visibleDevices()) > 0 {
 				m.expanded = !m.expanded
 			}
 
 		case "r":
-			if !m.loading {
+			m.notice = ""
+			if !m.loading && !m.formLoading {
 				m.loading = true
 				m.err = nil
 				return m, m.loadSnapshot()
@@ -104,7 +195,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the modern read-only interface in the alternate screen.
+// View renders the interface in the alternate screen.
 func (m Model) View() tea.View {
 	view := tea.NewView(m.render())
 	view.AltScreen = true
@@ -122,6 +213,101 @@ func (m Model) loadSnapshot() tea.Cmd {
 		}
 		return snapshotMsg{snapshot: snapshot}
 	}
+}
+
+func (m Model) loadEthernetProfile(profilePath, devicePath string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		profile, err := m.source.EthernetProfile(ctx, profilePath, devicePath)
+		if err != nil {
+			return ethernetProfileErrMsg{err: err}
+		}
+		return ethernetProfileMsg{profile: profile}
+	}
+}
+
+func (m Model) saveEthernetProfile(profile model.EthernetProfile) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		saved, err := m.source.SaveEthernetProfile(ctx, profile)
+		if err != nil {
+			return ethernetSaveErrMsg{err: err}
+		}
+		return ethernetSavedMsg{profile: saved}
+	}
+}
+
+func (m *Model) openEthernetForm(device model.Device) tea.Cmd {
+	m.err = nil
+	m.expanded = false
+
+	if profile := m.preferredEthernetProfile(device); profile != nil {
+		m.formLoading = true
+		return m.loadEthernetProfile(profile.ObjectPath, device.ObjectPath)
+	}
+
+	m.form = newEthernetForm(model.EthernetProfile{
+		DevicePath:    device.ObjectPath,
+		InterfaceName: device.Interface,
+		Autoconnect:   true,
+		IPv4: model.IPProfileConfig{
+			Method: model.IPMethodAuto,
+		},
+		IPv6: model.IPProfileConfig{
+			Method: model.IPMethodAuto,
+		},
+	})
+	return nil
+}
+
+func (m Model) preferredEthernetProfile(device model.Device) *model.ConnectionProfile {
+	if device.ActiveConnection != nil &&
+		device.ActiveConnection.Type == "802-3-ethernet" &&
+		device.ActiveConnection.ObjectPath != "" {
+		profile := *device.ActiveConnection
+		return &profile
+	}
+
+	available := make(map[string]struct{}, len(device.AvailableProfileUUIDs))
+	for _, uuid := range device.AvailableProfileUUIDs {
+		available[uuid] = struct{}{}
+	}
+
+	candidates := make([]model.ConnectionProfile, 0)
+	for _, profile := range m.snapshot.Profiles {
+		if profile.Type != "802-3-ethernet" || profile.ObjectPath == "" {
+			continue
+		}
+		if len(available) > 0 {
+			if _, ok := available[profile.UUID]; !ok {
+				continue
+			}
+		} else if profile.InterfaceName != "" && profile.InterfaceName != device.Interface {
+			continue
+		}
+		candidates = append(candidates, profile)
+	}
+
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].AutoconnectPriority != candidates[j].AutoconnectPriority {
+			return candidates[i].AutoconnectPriority > candidates[j].AutoconnectPriority
+		}
+		if candidates[i].Autoconnect != candidates[j].Autoconnect {
+			return candidates[i].Autoconnect
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+
+	profile := candidates[0]
+	return &profile
 }
 
 func (m *Model) clampCursor() {
@@ -164,11 +350,15 @@ func (m Model) render() string {
 		width = 32
 	}
 
+	if m.form != nil {
+		return m.form.render(width-2, m.formSaving)
+	}
+
 	contentWidth := width - 2
 	var out strings.Builder
 
 	header := titleStyle.Render("NetworkManager-HSP") + "  " +
-		mutedStyle.Render("friendly network manager · read-only")
+		mutedStyle.Render("friendly network manager")
 	out.WriteString(lipgloss.NewStyle().
 		Width(contentWidth).
 		Padding(0, 1).
@@ -177,14 +367,20 @@ func (m Model) render() string {
 	out.WriteString(m.renderStatus(contentWidth))
 
 	switch {
+	case m.formLoading:
+		out.WriteString("\n\n  " + warningStyle.Render("Loading Ethernet settings..."))
 	case m.loading:
 		out.WriteString("\n\n  " + warningStyle.Render("Refreshing network state..."))
 	case m.err != nil:
-		out.WriteString("\n\n  " + errorStyle.Render("Unable to read NetworkManager"))
+		out.WriteString("\n\n  " + errorStyle.Render("NetworkManager operation failed"))
 		out.WriteString("\n  " + mutedStyle.Render(m.err.Error()))
 	default:
 		out.WriteString("\n")
 		out.WriteString(m.renderDevices(contentWidth))
+	}
+
+	if m.notice != "" {
+		out.WriteString("\n  " + goodStyle.Render(m.notice))
 	}
 
 	out.WriteString("\n")
@@ -320,9 +516,9 @@ func (m Model) renderDetails(device model.Device) string {
 }
 
 func (m Model) renderHelp(width int) string {
-	help := "↑/↓ or j/k navigate   Enter details   r refresh   q/Esc exit"
-	if width < 58 {
-		help = "↑/↓ move  Enter details  r refresh  q exit"
+	help := "↑/↓ or j/k navigate   Enter Ethernet settings / Wi-Fi details   d details   r refresh   q exit"
+	if width < 68 {
+		help = "↑/↓ move   Enter select   d details   r refresh   q exit"
 	}
 	return helpStyle.
 		Width(width).
@@ -399,8 +595,6 @@ func emptyFallback(value, fallback string) string {
 }
 
 func cardContentWidth(width int) int {
-	// Lip Gloss Width applies to the card content and border/padding are added
-	// outside it. Leave room so cards fit the terminal width.
 	if width <= 6 {
 		return 1
 	}
