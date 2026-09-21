@@ -3,11 +3,11 @@
 package validation
 
 import (
-	"encoding/hex"
 	"fmt"
 	"strings"
 
 	"github.com/home-server-project/nm-hsp/internal/model"
+	"github.com/home-server-project/nm-hsp/internal/security"
 )
 
 // ValidateWiFiConnectRequest validates a new Wi-Fi connection before it is
@@ -22,11 +22,11 @@ func ValidateWiFiConnectRequest(request model.WiFiConnectRequest) error {
 
 	switch request.KeyManagement {
 	case "":
-		if request.Password != "" {
+		if !request.Password.Empty() {
 			return fmt.Errorf("open Wi-Fi must not contain a password")
 		}
 	case "owe":
-		if request.Password != "" {
+		if !request.Password.Empty() {
 			return fmt.Errorf("OWE Wi-Fi must not contain a password")
 		}
 	case "wpa-psk":
@@ -34,7 +34,7 @@ func ValidateWiFiConnectRequest(request model.WiFiConnectRequest) error {
 			return fmt.Errorf("WPA/WPA2 password must be 8-63 characters or 64 hexadecimal characters")
 		}
 	case "sae":
-		if request.Password == "" {
+		if request.Password.Empty() {
 			return fmt.Errorf("WPA3 password is required")
 		}
 	default:
@@ -56,14 +56,10 @@ func ValidateSSID(ssid string) error {
 	return nil
 }
 
-func validWPAPSK(password string) bool {
-	length := len([]byte(password))
+func validWPAPSK(password security.Secret) bool {
+	length := password.Len()
 	if length >= 8 && length <= 63 {
 		return true
 	}
-	if length != 64 {
-		return false
-	}
-	_, err := hex.DecodeString(password)
-	return err == nil
+	return length == 64 && password.IsHex()
 }

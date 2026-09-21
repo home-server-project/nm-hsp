@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/home-server-project/nm-hsp/internal/model"
+	"github.com/home-server-project/nm-hsp/internal/security"
 )
 
 func TestValidateSSID(t *testing.T) {
@@ -33,15 +34,19 @@ func TestValidateWiFiConnectRequest(t *testing.T) {
 
 	personal := base
 	personal.KeyManagement = "wpa-psk"
-	personal.Password = "correct-horse"
+	personal.Password = security.NewSecret("correct-horse")
 	if err := ValidateWiFiConnectRequest(personal); err != nil {
+		personal.Password.Clear()
 		t.Fatalf("personal network rejected: %v", err)
 	}
+	personal.Password.Clear()
 
-	personal.Password = "short"
+	personal.Password = security.NewSecret("short")
 	if err := ValidateWiFiConnectRequest(personal); err == nil {
+		personal.Password.Clear()
 		t.Fatal("short WPA PSK should fail")
 	}
+	personal.Password.Clear()
 
 	enterprise := base
 	enterprise.KeyManagement = "wpa-eap"

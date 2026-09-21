@@ -8,6 +8,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/home-server-project/nm-hsp/internal/model"
+	"github.com/home-server-project/nm-hsp/internal/security"
 	"github.com/home-server-project/nm-hsp/internal/validation"
 )
 
@@ -125,6 +126,8 @@ func (c *Client) UpdateWiFiProfileMetadata(ctx context.Context, update model.WiF
 
 // ConnectWiFi creates a persistent supported Wi-Fi profile and activates it.
 func (c *Client) ConnectWiFi(ctx context.Context, request model.WiFiConnectRequest) (string, string, error) {
+	defer request.Password.Clear()
+
 	if err := validation.ValidateWiFiConnectRequest(request); err != nil {
 		return "", "", err
 	}
@@ -164,10 +167,17 @@ func (c *Client) ConnectWiFi(ctx context.Context, request model.WiFiConnectReque
 		specific,
 		options,
 	).Store(&profilePath, &activePath, &result); err != nil {
-		return "", "", fmt.Errorf("connect to Wi-Fi: %w", err)
+		return "", "", sanitizeWiFiConnectError(err, request.Password)
 	}
 
 	return string(profilePath), string(activePath), nil
+}
+
+func sanitizeWiFiConnectError(err error, password security.Secret) error {
+	if err == nil {
+		return nil
+	}
+	return security.RedactError(fmt.Errorf("connect to Wi-Fi: %w", err), password)
 }
 
 func newWiFiSettings(request model.WiFiConnectRequest, uuid string) map[string]map[string]dbus.Variant {
@@ -193,13 +203,13 @@ func newWiFiSettings(request model.WiFiConnectRequest, uuid string) map[string]m
 	}
 
 	if request.KeyManagement != "" {
-		security := map[string]dbus.Variant{
+		wirelessSecurity := map[string]dbus.Variant{
 			"key-mgmt": dbus.MakeVariant(request.KeyManagement),
 		}
 		if request.KeyManagement == "wpa-psk" || request.KeyManagement == "sae" {
-			security["psk"] = dbus.MakeVariant(request.Password)
+			wirelessSecurity["psk"] = dbus.MakeVariant(request.Password.Value())
 		}
-		settings["802-11-wireless-security"] = security
+		settings["802-11-wireless-security"] = wirelessSecurity
 	}
 
 	return settings
