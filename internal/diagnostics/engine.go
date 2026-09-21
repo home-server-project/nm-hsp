@@ -104,6 +104,7 @@ func analyzeEthernet(snapshot model.Snapshot, device model.Device) []model.Diagn
 
 	profiles := ethernetProfiles(snapshot.Profiles)
 	candidate := bestEthernetProfile(device, profiles)
+	macMismatch := ethernetMACMismatchProfile(device, profiles)
 	if device.ActiveConnection != nil && device.ActiveConnection.Type == "802-3-ethernet" {
 		active := *device.ActiveConnection
 		checks = append(checks, withBase(base, model.DiagnosticCheck{
@@ -197,14 +198,12 @@ func analyzeEthernet(snapshot model.Snapshot, device model.Device) []model.Diagn
 		checks = append(checks, withBase(base, check))
 	}
 
-	if candidate != nil && candidate.WiredMACAddress != "" &&
-		!sameMAC(candidate.WiredMACAddress, device.HardwareAddress) &&
-		(candidate.InterfaceName == device.Interface || candidate.InterfaceName == "") {
+	if macMismatch != nil {
 		checks = append(checks, withBase(base, model.DiagnosticCheck{
 			ID:     "ethernet-mac-mismatch",
 			Status: model.DiagnosticProblem,
 			Title:  "Saved profile is bound to a different hardware address",
-			Detail: fmt.Sprintf("%q expects %s, but this adapter is %s. nm-hsp will not rewrite the MAC binding automatically.", candidate.ID, candidate.WiredMACAddress, device.HardwareAddress),
+			Detail: fmt.Sprintf("%q expects %s, but this adapter is %s. nm-hsp will not rewrite the MAC binding automatically.", macMismatch.ID, macMismatch.WiredMACAddress, device.HardwareAddress),
 		}))
 	}
 
@@ -494,6 +493,9 @@ func bestEthernetProfile(device model.Device, profiles []model.ConnectionProfile
 	}
 	var candidates []scored
 	for _, profile := range profiles {
+		if profile.WiredMACAddress != "" && !sameMAC(profile.WiredMACAddress, device.HardwareAddress) {
+			continue
+		}
 		score := 0
 		if _, ok := available[profile.UUID]; ok {
 			score += 100
@@ -526,6 +528,19 @@ func bestEthernetProfile(device model.Device, profiles []model.ConnectionProfile
 	})
 	profile := candidates[0].profile
 	return &profile
+}
+
+func ethernetMACMismatchProfile(device model.Device, profiles []model.ConnectionProfile) *model.ConnectionProfile {
+	for _, profile := range profiles {
+		if profile.WiredMACAddress == "" || sameMAC(profile.WiredMACAddress, device.HardwareAddress) {
+			continue
+		}
+		if profile.InterfaceName == device.Interface || profile.InterfaceName == "" {
+			copy := profile
+			return &copy
+		}
+	}
+	return nil
 }
 
 func unmatchedEthernetProfiles(device model.Device, profiles []model.ConnectionProfile) []model.ConnectionProfile {

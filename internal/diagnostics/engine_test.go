@@ -133,6 +133,9 @@ func TestMismatchedMACIsDiagnosedWithoutAutomaticRepair(t *testing.T) {
 	if check.Repair != nil {
 		t.Fatal("MAC mismatch must not be auto-repaired")
 	}
+	if activate := findCheck(report, "ethernet-profile-inactive"); activate != nil && activate.Repair != nil {
+		t.Fatal("MAC-mismatched profile must not receive an activation repair")
+	}
 }
 
 func TestDHCPWithoutAddressOffersRetryOnly(t *testing.T) {
