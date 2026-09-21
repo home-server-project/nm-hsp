@@ -67,7 +67,7 @@ type WiFiNetwork struct {
 	FrequencyMHz   uint32
 	MaxBitrateKbps uint32
 	Security       WiFiSecurity
-	KeyManagement string
+	KeyManagement  string
 	Hidden         bool
 	Known          bool
 	Active         bool

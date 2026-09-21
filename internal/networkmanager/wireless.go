@@ -74,7 +74,7 @@ func (c *Client) WiFiNetworks(ctx context.Context, devicePath string) ([]model.W
 			FrequencyMHz:   uint32Value(props, "Frequency"),
 			MaxBitrateKbps: uint32Value(props, "MaxBitrate"),
 			Security:       security,
-			KeyManagement: keyManagement,
+			KeyManagement:  keyManagement,
 			Hidden:         ssid == "",
 			Known:          known[ssid],
 			Active:         validObjectPath(activeAP) && apPath == activeAP,

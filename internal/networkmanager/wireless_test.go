@@ -10,12 +10,12 @@ import (
 
 func TestClassifyWiFiSecurity(t *testing.T) {
 	tests := []struct {
-		name       string
-		flags      uint32
-		wpa        uint32
-		rsn        uint32
-		security   model.WiFiSecurity
-		keyMgmt    string
+		name     string
+		flags    uint32
+		wpa      uint32
+		rsn      uint32
+		security model.WiFiSecurity
+		keyMgmt  string
 	}{
 		{name: "open", security: model.WiFiSecurityOpen},
 		{name: "wep", flags: apFlagPrivacy, security: model.WiFiSecurityWEP, keyMgmt: "none"},
