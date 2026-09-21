@@ -49,7 +49,8 @@ func (c *Client) WiFiNetworks(ctx context.Context, devicePath string) ([]model.W
 	known := make(map[string]bool)
 	for _, profile := range profiles {
 		if profile.Type == "802-11-wireless" && profile.SSID != "" {
-			known[profile.SSID] = true
+			key := profile.SSID + "\x00" + profile.KeyManagement
+			known[key] = true
 		}
 	}
 
@@ -76,7 +77,7 @@ func (c *Client) WiFiNetworks(ctx context.Context, devicePath string) ([]model.W
 			Security:       security,
 			KeyManagement:  keyManagement,
 			Hidden:         ssid == "",
-			Known:          known[ssid],
+			Known:          known[ssid+"\x00"+keyManagement],
 			Active:         validObjectPath(activeAP) && apPath == activeAP,
 		}
 
