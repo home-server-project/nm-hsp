@@ -6,7 +6,7 @@ The project is intended to provide a modern, keyboard-driven interface for ordin
 
 ## Project status
 
-Early development. Checkpoint 4 is implemented on the `testing` branch: `nm-hsp` now provides an interactive Ethernet settings form backed directly by NetworkManager D-Bus. Wi-Fi remains read-only until the next checkpoint.
+Early development. Checkpoint 5 is implemented on the `testing` branch: `nm-hsp` now provides interactive Ethernet configuration and a first-class Wi-Fi manager backed directly by NetworkManager D-Bus.
 
 ## Goals
 
@@ -38,7 +38,7 @@ Checkpoint 2 uses NetworkManager's system D-Bus API directly. It currently reads
 - Saved connection profile ID, UUID, type, interface binding, autoconnect, and autoconnect priority.
 - Active and available profile relationships for each device.
 
-The backend reads NetworkManager directly over D-Bus and, for Ethernet only, can persist supported non-secret connection profile settings. It does not call `GetSecrets`.
+The backend reads and updates NetworkManager directly over D-Bus. It can persist supported Ethernet settings, scan Wi-Fi networks, toggle the Wi-Fi radio, activate/deactivate saved Wi-Fi profiles, create supported Wi-Fi profiles, update autoconnect metadata, and delete saved Wi-Fi profiles. It does not call `GetSecrets`.
 
 For development and VM verification, `nm-hsp --snapshot` prints this normalized read-only state as JSON.
 
@@ -59,7 +59,7 @@ Controls:
 
 - Up/Down arrows or `j`/`k` — move between devices.
 - Enter on Ethernet — open the interactive Ethernet settings form.
-- Enter on Wi-Fi — show or hide read-only Wi-Fi details.
+- Enter on Wi-Fi — open the interactive Wi-Fi manager.
 - `d` — show or hide device details.
 - `r` — refresh NetworkManager state.
 - `q`, Esc, or Ctrl-C — exit.
@@ -80,7 +80,28 @@ The form uses standard single-line TUI input fields. Tab, Up/Down, and Enter mov
 
 For an existing Ethernet connection, nm-hsp re-reads the full non-secret NetworkManager profile immediately before saving and patches only the supported fields so unrelated profile settings are preserved. If the device has no saved Ethernet profile, nm-hsp creates a new persistent DHCP-style profile bound to that interface.
 
-Checkpoint 4 saves profiles to disk only. It deliberately does not activate, deactivate, reconnect, or reapply the live network connection. Wi-Fi configuration and all secret handling remain future checkpoints.
+Checkpoint 4 saves Ethernet profiles to disk only. It deliberately does not activate, deactivate, reconnect, or reapply the live Ethernet connection.
+
+
+## Interactive Wi-Fi manager
+
+The Checkpoint 5 Wi-Fi manager supports:
+
+- Wi-Fi radio On / Off.
+- Rescan of visible networks.
+- SSID, signal, security type, band, known/saved state, and active state.
+- Activation of existing saved Wi-Fi profiles.
+- Disconnect of the active Wi-Fi connection.
+- Forget/delete of saved Wi-Fi profiles.
+- Hidden-network setup.
+- Autoconnect On / Off and autoconnect priority for saved profiles.
+- New Open, Enhanced Open (OWE), WPA/WPA2 Personal, and WPA3 Personal connections.
+- Masked password input with an explicit Show Password toggle for new Personal connections.
+- Saved profiles display `Password: unchanged`; nm-hsp does not fetch the existing saved password into the form.
+
+New Enterprise and legacy WEP credential setup are intentionally not implemented yet. Existing saved Enterprise profiles can still be activated because NetworkManager already owns their credentials.
+
+Wi-Fi connection creation and activation use NetworkManager D-Bus directly. Passwords are not passed through shell commands or process arguments. The new-password value is cleared from the form after a successful connection or cancellation. The dedicated Checkpoint 6 security audit will review secret lifetime, redaction, error paths, logging, and regression coverage before release readiness.
 
 ## Source layout
 
