@@ -32,14 +32,14 @@ type diagnosticsRepairMsg struct {
 }
 
 type diagnosticsScreen struct {
-	source    diagnosticsSource
-	report    model.DiagnosticReport
-	cursor    int
-	loading   bool
-	applying  bool
-	confirm   *model.RepairAction
-	notice    string
-	err       error
+	source   diagnosticsSource
+	report   model.DiagnosticReport
+	cursor   int
+	loading  bool
+	applying bool
+	confirm  *model.RepairAction
+	notice   string
+	err      error
 }
 
 func newDiagnosticsScreen(source diagnosticsSource) *diagnosticsScreen {
