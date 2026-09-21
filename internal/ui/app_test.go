@@ -39,7 +39,6 @@ func (f *fakeSource) SaveEthernetProfile(_ context.Context, profile model.Ethern
 	return profile, nil
 }
 
-
 func (f *fakeSource) WiFiNetworks(context.Context, string) ([]model.WiFiNetwork, error) {
 	return f.wifiNetworks, nil
 }
@@ -313,7 +312,7 @@ func TestPreferredEthernetProfileUsesHighestAutoconnectPriority(t *testing.T) {
 func TestEnterOnWiFiOpensManager(t *testing.T) {
 	snapshot := sampleSnapshot()
 	source := &fakeSource{
-		snapshot: snapshot,
+		snapshot:     snapshot,
 		wifiNetworks: []model.WiFiNetwork{
 			{
 				ObjectPath:    "/org/freedesktop/NetworkManager/AccessPoint/1",
