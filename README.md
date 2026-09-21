@@ -6,7 +6,7 @@ The project is intended to provide a modern, keyboard-driven interface for ordin
 
 ## Project status
 
-Early development. Checkpoint 2 is implemented on the `testing` branch: a read-only NetworkManager D-Bus backend discovers devices, runtime IP configuration, connectivity state, and non-secret connection profile metadata. The terminal UI and all network-changing operations remain future checkpoints.
+Early development. Checkpoint 3 is implemented on the `testing` branch: `nm-hsp` now launches a modern read-only terminal dashboard backed directly by NetworkManager D-Bus. Ethernet and Wi-Fi state can be browsed and refreshed, but all network-changing operations remain intentionally unavailable until later checkpoints.
 
 ## Goals
 
@@ -41,6 +41,28 @@ Checkpoint 2 uses NetworkManager's system D-Bus API directly. It currently reads
 The backend does not call NetworkManager mutation methods and does not call `GetSecrets`.
 
 For development and VM verification, `nm-hsp --snapshot` prints this normalized read-only state as JSON.
+
+## Read-only terminal dashboard
+
+Running `nm-hsp` launches the Checkpoint 3 terminal interface.
+
+The dashboard currently provides:
+
+- Overall NetworkManager connectivity and version.
+- Networking and Wi-Fi enabled state.
+- Friendly Ethernet and Wi-Fi device cards.
+- Connection state, active profile, IPv4 address, Ethernet carrier/speed, and active Wi-Fi SSID/signal.
+- Expanded read-only details for MAC address, MTU, IPv4/IPv6 addresses, gateway, DNS, and autoconnect state.
+- Responsive compact rendering for smaller terminals.
+
+Controls:
+
+- Up/Down arrows or `j`/`k` — move between devices.
+- Enter — show or hide details for the selected device.
+- `r` — refresh NetworkManager state.
+- `q`, Esc, or Ctrl-C — exit.
+
+Checkpoint 3 contains no profile activation, deactivation, editing, Wi-Fi connection, or secret access.
 
 ## Source layout
 
