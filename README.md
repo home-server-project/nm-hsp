@@ -6,7 +6,7 @@ The project is intended to provide a modern, keyboard-driven interface for ordin
 
 ## Project status
 
-Early development. Checkpoint 5 is implemented on the `testing` branch: `nm-hsp` now provides interactive Ethernet configuration and a first-class Wi-Fi manager backed directly by NetworkManager D-Bus.
+Early development. Checkpoint 6 is implemented on the `testing` branch: `nm-hsp` now includes interactive Ethernet and Wi-Fi management plus an explicit secret-handling hardening layer and regression tests.
 
 ## Goals
 
@@ -101,7 +101,7 @@ The Checkpoint 5 Wi-Fi manager supports:
 
 New Enterprise and legacy WEP credential setup are intentionally not implemented yet. Existing saved Enterprise profiles can still be activated because NetworkManager already owns their credentials.
 
-Wi-Fi connection creation and activation use NetworkManager D-Bus directly. Passwords are not passed through shell commands or process arguments. The new-password value is cleared from the form after a successful connection or cancellation. The dedicated Checkpoint 6 security audit will review secret lifetime, redaction, error paths, logging, and regression coverage before release readiness.
+Wi-Fi connection creation and activation use NetworkManager D-Bus directly. Passwords are not passed through shell commands or process arguments, saved passwords are not fetched with `GetSecrets`, and new-password values are redacted from formatting and error paths. The visible form is cleared immediately when Connect is submitted or cancelled; copied `Secret` values share one clear-state; and the temporary D-Bus settings map drops its `psk` entry immediately after the call. See `docs/security.md` for the exact guarantees and limitations.
 
 ## Source layout
 
@@ -111,6 +111,7 @@ Wi-Fi connection creation and activation use NetworkManager D-Bus directly. Pass
 - `internal/ui` — terminal user interface
 - `internal/security` — secret handling and safety helpers
 - `internal/validation` — network input validation
+- `docs/security.md` — credential-handling guarantees, limitations, and regression contracts
 
 ## Development workflow
 
