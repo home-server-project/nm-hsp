@@ -16,7 +16,7 @@ import (
 
 // NetworkSource is the NetworkManager data contract consumed by the TUI.
 type NetworkSource interface {
-	Snapshot(context.Context) (model.Snapshot, error)
+	wifiSource
 	EthernetProfile(context.Context, string, string) (model.EthernetProfile, error)
 	SaveEthernetProfile(context.Context, model.EthernetProfile) (model.EthernetProfile, error)
 }
@@ -57,6 +57,7 @@ type Model struct {
 	formLoading bool
 	formSaving  bool
 	form        *ethernetForm
+	wifi        *wifiScreen
 	err         error
 	notice      string
 }
@@ -74,8 +75,26 @@ func (m Model) Init() tea.Cmd {
 	return m.loadSnapshot()
 }
 
-// Update handles dashboard navigation and the Checkpoint 4 Ethernet form.
+// Update handles dashboard navigation plus Ethernet and Wi-Fi management.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if size, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = size.Width
+		m.height = size.Height
+	}
+	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+	if m.wifi != nil {
+		closeScreen, cmd := m.wifi.update(msg)
+		if closeScreen {
+			m.wifi = nil
+			m.loading = true
+			m.err = nil
+			return m, m.loadSnapshot()
+		}
+		return m, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -173,6 +192,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			device := devices[m.cursor]
 			if device.Kind == model.DeviceKindEthernet {
 				return m, m.openEthernetForm(device)
+			}
+			if device.Kind == model.DeviceKindWiFi {
+				m.wifi = newWiFiScreen(m.source, device, m.snapshot)
+				return m, m.wifi.init()
 			}
 			m.expanded = !m.expanded
 
@@ -350,6 +373,9 @@ func (m Model) render() string {
 		width = 32
 	}
 
+	if m.wifi != nil {
+		return m.wifi.render(width - 2)
+	}
 	if m.form != nil {
 		return m.form.render(width-2, m.formSaving)
 	}
@@ -516,7 +542,7 @@ func (m Model) renderDetails(device model.Device) string {
 }
 
 func (m Model) renderHelp(width int) string {
-	help := "↑/↓ or j/k navigate   Enter Ethernet settings / Wi-Fi details   d details   r refresh   q exit"
+	help := "↑/↓ or j/k navigate   Enter Ethernet settings / Wi-Fi manager   d details   r refresh   q exit"
 	if width < 68 {
 		help = "↑/↓ move   Enter select   d details   r refresh   q exit"
 	}

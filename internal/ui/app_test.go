@@ -17,6 +17,7 @@ type fakeSource struct {
 	loadErr         error
 	saveErr         error
 	saved           *model.EthernetProfile
+	wifiNetworks    []model.WiFiNetwork
 }
 
 func (f *fakeSource) Snapshot(context.Context) (model.Snapshot, error) {
@@ -36,6 +37,40 @@ func (f *fakeSource) SaveEthernetProfile(_ context.Context, profile model.Ethern
 	}
 	f.saved = &profile
 	return profile, nil
+}
+
+
+func (f *fakeSource) WiFiNetworks(context.Context, string) ([]model.WiFiNetwork, error) {
+	return f.wifiNetworks, nil
+}
+
+func (f *fakeSource) RequestWiFiScan(context.Context, string) error {
+	return nil
+}
+
+func (f *fakeSource) SetWirelessEnabled(_ context.Context, enabled bool) error {
+	f.snapshot.WirelessEnabled = enabled
+	return nil
+}
+
+func (f *fakeSource) ActivateWiFiProfile(context.Context, string, string, string) error {
+	return nil
+}
+
+func (f *fakeSource) DisconnectWiFi(context.Context, string) error {
+	return nil
+}
+
+func (f *fakeSource) ForgetWiFiProfile(context.Context, string) error {
+	return nil
+}
+
+func (f *fakeSource) UpdateWiFiProfileMetadata(context.Context, model.WiFiProfileUpdate) error {
+	return nil
+}
+
+func (f *fakeSource) ConnectWiFi(context.Context, model.WiFiConnectRequest) (string, string, error) {
+	return "/profile", "/active", nil
 }
 
 func boolPtr(value bool) *bool {
@@ -272,5 +307,35 @@ func TestPreferredEthernetProfileUsesHighestAutoconnectPriority(t *testing.T) {
 	profile := m.preferredEthernetProfile(snapshot.Devices[0])
 	if profile == nil || profile.UUID != "high" {
 		t.Fatalf("preferred profile = %#v, want high priority profile", profile)
+	}
+}
+
+func TestEnterOnWiFiOpensManager(t *testing.T) {
+	snapshot := sampleSnapshot()
+	source := &fakeSource{
+		snapshot: snapshot,
+		wifiNetworks: []model.WiFiNetwork{
+			{
+				ObjectPath:    "/org/freedesktop/NetworkManager/AccessPoint/1",
+				SSID:          "Home Wi-Fi",
+				Strength:      82,
+				Security:      model.WiFiSecurityPersonal,
+				KeyManagement: "wpa-psk",
+			},
+		},
+	}
+
+	m := New(source)
+	m.snapshot = snapshot
+	m.loading = false
+	m.cursor = 1
+
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = updated.(Model)
+	if m.wifi == nil {
+		t.Fatal("Enter on Wi-Fi should open the Wi-Fi manager")
+	}
+	if cmd == nil {
+		t.Fatal("Wi-Fi manager should refresh networks when opened")
 	}
 }
