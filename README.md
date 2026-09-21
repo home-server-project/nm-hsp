@@ -6,7 +6,7 @@ The project is intended to provide a modern, keyboard-driven interface for ordin
 
 ## Project status
 
-Early development. The application currently contains only the project foundation; networking functionality is being implemented incrementally on the `testing` branch.
+Early development. Checkpoint 2 is implemented on the `testing` branch: a read-only NetworkManager D-Bus backend discovers devices, runtime IP configuration, connectivity state, and non-secret connection profile metadata. The terminal UI and all network-changing operations remain future checkpoints.
 
 ## Goals
 
@@ -25,6 +25,22 @@ Early development. The application currently contains only the project foundatio
 This repository owns the application source and releases.
 
 A future RPM pipeline belongs in `home-server-project/home-server-packages`. Product repositories such as JustVoxel will consume the packaged application and may expose it through commands such as `mjust net`.
+
+## Current backend contract
+
+Checkpoint 2 uses NetworkManager's system D-Bus API directly. It currently reads:
+
+- NetworkManager version, global state, connectivity, networking enabled, and Wi-Fi enabled state.
+- Network devices, interface names, type, state, managed state, hardware address, and MTU.
+- Ethernet carrier and speed reported by NetworkManager.
+- Active Wi-Fi SSID, signal strength, and bitrate when available.
+- Effective IPv4/IPv6 addresses and prefix lengths, gateway, and DNS servers.
+- Saved connection profile ID, UUID, type, interface binding, autoconnect, and autoconnect priority.
+- Active and available profile relationships for each device.
+
+The backend does not call NetworkManager mutation methods and does not call `GetSecrets`.
+
+For development and VM verification, `nm-hsp --snapshot` prints this normalized read-only state as JSON.
 
 ## Source layout
 
