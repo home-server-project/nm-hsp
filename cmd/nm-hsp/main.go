@@ -9,33 +9,47 @@ import (
 	"os"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/home-server-project/nm-hsp/internal/networkmanager"
+	"github.com/home-server-project/nm-hsp/internal/ui"
 )
 
 func main() {
-	if len(os.Args) != 2 || os.Args[1] != "--snapshot" {
-		fmt.Println("NetworkManager-HSP development build")
-		return
+	if len(os.Args) > 2 {
+		exitf("usage: nm-hsp [--snapshot]")
+	}
+	if len(os.Args) == 2 && os.Args[1] != "--snapshot" {
+		exitf("usage: nm-hsp [--snapshot]")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	client, err := networkmanager.NewSystem(ctx)
+	startupCtx, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
+	client, err := networkmanager.NewSystem(startupCtx)
+	cancelStartup()
 	if err != nil {
 		exitf("nm-hsp: %v", err)
 	}
 	defer client.Close()
 
-	snapshot, err := client.Snapshot(ctx)
-	if err != nil {
-		exitf("nm-hsp: %v", err)
+	if len(os.Args) == 2 {
+		snapshotCtx, cancelSnapshot := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelSnapshot()
+
+		snapshot, err := client.Snapshot(snapshotCtx)
+		if err != nil {
+			exitf("nm-hsp: %v", err)
+		}
+
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(snapshot); err != nil {
+			exitf("nm-hsp: encode snapshot: %v", err)
+		}
+		return
 	}
 
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(snapshot); err != nil {
-		exitf("nm-hsp: encode snapshot: %v", err)
+	program := tea.NewProgram(ui.New(client))
+	if _, err := program.Run(); err != nil {
+		exitf("nm-hsp: %v", err)
 	}
 }
 
