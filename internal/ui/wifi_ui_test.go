@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -21,6 +22,10 @@ func TestWiFiPasswordMaskedAndToggleable(t *testing.T) {
 	})
 	form.password.SetValue("correct-horse")
 
+	output := form.render(90, false)
+	if strings.Contains(output, "correct-horse") {
+		t.Fatal("masked Wi-Fi form render exposed the password")
+	}
 	if form.password.EchoMode != textinput.EchoPassword {
 		t.Fatal("Wi-Fi password must be masked by default")
 	}
@@ -34,6 +39,9 @@ func TestWiFiPasswordMaskedAndToggleable(t *testing.T) {
 	form.clearSecret()
 	if form.password.Value() != "" {
 		t.Fatal("clearSecret() must remove the transient password")
+	}
+	if form.showPassword || form.password.EchoMode != textinput.EchoPassword {
+		t.Fatal("clearSecret() must restore masked password mode")
 	}
 }
 
@@ -50,8 +58,15 @@ func TestHiddenWiFiFormBuildsRequest(t *testing.T) {
 	if !request.Hidden || request.SSID != "HiddenNet" || request.KeyManagement != "wpa-psk" {
 		t.Fatalf("hidden request = %#v", request)
 	}
+	defer request.Password.Clear()
 	if request.AutoconnectPriority != 15 {
 		t.Fatalf("priority = %d, want 15", request.AutoconnectPriority)
+	}
+	if request.Password.Empty() {
+		t.Fatal("personal Wi-Fi request should carry a transient secret")
+	}
+	if strings.Contains(fmt.Sprintf("%+v", request), "correct-horse") {
+		t.Fatal("formatted Wi-Fi request exposed the password")
 	}
 }
 
@@ -139,5 +154,35 @@ func TestOutOfRangeSavedWiFiProfileIsListed(t *testing.T) {
 	screen.rebuildItems()
 	if len(screen.items) != 1 || screen.items[0].profile == nil {
 		t.Fatalf("saved out-of-range profile not listed: %#v", screen.items)
+	}
+}
+
+
+func TestWiFiSubmitClearsVisiblePasswordImmediately(t *testing.T) {
+	form := newVisibleWiFiConnectForm("/device", model.WiFiNetwork{
+		ObjectPath:    "/ap",
+		SSID:          "Home Wi-Fi",
+		Strength:      80,
+		Security:      model.WiFiSecurityPersonal,
+		KeyManagement: "wpa-psk",
+	})
+	form.password.SetValue("correct-horse")
+	form.showPassword = true
+	form.syncPasswordEcho()
+	form.field = wifiConnectSubmit
+
+	screen := &wifiScreen{connectForm: form}
+	cmd := screen.updateConnectForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if cmd == nil {
+		t.Fatal("Connect submission should return a command")
+	}
+	if !screen.busy {
+		t.Fatal("Connect submission should mark the Wi-Fi screen busy")
+	}
+	if form.password.Value() != "" {
+		t.Fatal("Connect submission must clear the visible password immediately")
+	}
+	if form.showPassword || form.password.EchoMode != textinput.EchoPassword {
+		t.Fatal("Connect submission must restore masked password mode")
 	}
 }
