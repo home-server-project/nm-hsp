@@ -207,6 +207,7 @@ func (s *wifiScreen) updateConnectForm(msg tea.KeyPressMsg) tea.Cmd {
 			s.connectForm.messageIsError = true
 			return nil
 		}
+		s.connectForm.clearSecret()
 		s.busy = true
 		return s.connect(request)
 	default:
