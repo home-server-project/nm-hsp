@@ -6,7 +6,7 @@ The project is intended to provide a modern, keyboard-driven interface for ordin
 
 ## Project status
 
-Early development. Checkpoint 3 is implemented on the `testing` branch: `nm-hsp` now launches a modern read-only terminal dashboard backed directly by NetworkManager D-Bus. Ethernet and Wi-Fi state can be browsed and refreshed, but all network-changing operations remain intentionally unavailable until later checkpoints.
+Early development. Checkpoint 4 is implemented on the `testing` branch: `nm-hsp` now provides an interactive Ethernet settings form backed directly by NetworkManager D-Bus. Wi-Fi remains read-only until the next checkpoint.
 
 ## Goals
 
@@ -38,13 +38,13 @@ Checkpoint 2 uses NetworkManager's system D-Bus API directly. It currently reads
 - Saved connection profile ID, UUID, type, interface binding, autoconnect, and autoconnect priority.
 - Active and available profile relationships for each device.
 
-The backend does not call NetworkManager mutation methods and does not call `GetSecrets`.
+The backend reads NetworkManager directly over D-Bus and, for Ethernet only, can persist supported non-secret connection profile settings. It does not call `GetSecrets`.
 
 For development and VM verification, `nm-hsp --snapshot` prints this normalized read-only state as JSON.
 
-## Read-only terminal dashboard
+## Terminal dashboard
 
-Running `nm-hsp` launches the Checkpoint 3 terminal interface.
+Running `nm-hsp` launches the terminal interface.
 
 The dashboard currently provides:
 
@@ -58,11 +58,29 @@ The dashboard currently provides:
 Controls:
 
 - Up/Down arrows or `j`/`k` — move between devices.
-- Enter — show or hide details for the selected device.
+- Enter on Ethernet — open the interactive Ethernet settings form.
+- Enter on Wi-Fi — show or hide read-only Wi-Fi details.
+- `d` — show or hide device details.
 - `r` — refresh NetworkManager state.
 - `q`, Esc, or Ctrl-C — exit.
 
-Checkpoint 3 contains no profile activation, deactivation, editing, Wi-Fi connection, or secret access.
+## Interactive Ethernet settings
+
+The Checkpoint 4 Ethernet form supports:
+
+- IPv4 Automatic / Manual / Disabled.
+- IPv4 address/prefix, gateway, and DNS.
+- IPv6 Automatic / Manual / Disabled.
+- IPv6 address/prefix, gateway, and DNS.
+- Autoconnect On / Off.
+- MTU, with blank/zero treated as automatic.
+- Explicit Save and Cancel actions.
+
+The form uses standard single-line TUI input fields. Tab, Up/Down, and Enter move through fields; Left/Right change option fields; typing edits the selected value field.
+
+For an existing Ethernet connection, nm-hsp re-reads the full non-secret NetworkManager profile immediately before saving and patches only the supported fields so unrelated profile settings are preserved. If the device has no saved Ethernet profile, nm-hsp creates a new persistent DHCP-style profile bound to that interface.
+
+Checkpoint 4 saves profiles to disk only. It deliberately does not activate, deactivate, reconnect, or reapply the live network connection. Wi-Fi configuration and all secret handling remain future checkpoints.
 
 ## Source layout
 
@@ -82,7 +100,7 @@ Current checkpoint sequence:
 1. Repository foundation
 2. NetworkManager backend and device discovery
 3. Read-only modern TUI
-4. Ethernet editor
+4. Interactive Ethernet settings
 5. Wi-Fi manager
 6. Secret-handling audit
 7. Diagnostics and repair
