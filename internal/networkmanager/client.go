@@ -36,7 +36,14 @@ type Client struct {
 
 // NewSystem connects to the system D-Bus where NetworkManager publishes its API.
 func NewSystem(ctx context.Context) (*Client, error) {
-	conn, err := dbus.ConnectSystemBus(dbus.WithContext(ctx))
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("connect to system D-Bus: %w", err)
+	}
+
+	// Do not bind the lifetime of the D-Bus connection to the caller's
+	// startup timeout. Long-running TUI sessions create short-lived contexts
+	// for individual operations through CallWithContext instead.
+	conn, err := dbus.ConnectSystemBus()
 	if err != nil {
 		return nil, fmt.Errorf("connect to system D-Bus: %w", err)
 	}
