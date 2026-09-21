@@ -217,7 +217,7 @@ func TestCompactRenderKeepsEssentialFields(t *testing.T) {
 func TestEnterOnEthernetLoadsInteractiveForm(t *testing.T) {
 	snapshot := sampleSnapshot()
 	source := &fakeSource{
-		snapshot:        snapshot,
+		snapshot: snapshot,
 		ethernetProfile: model.EthernetProfile{
 			ProfilePath:   "/org/freedesktop/NetworkManager/Settings/1",
 			DevicePath:    "/org/freedesktop/NetworkManager/Devices/2",
@@ -312,7 +312,7 @@ func TestPreferredEthernetProfileUsesHighestAutoconnectPriority(t *testing.T) {
 func TestEnterOnWiFiOpensManager(t *testing.T) {
 	snapshot := sampleSnapshot()
 	source := &fakeSource{
-		snapshot:     snapshot,
+		snapshot: snapshot,
 		wifiNetworks: []model.WiFiNetwork{
 			{
 				ObjectPath:    "/org/freedesktop/NetworkManager/AccessPoint/1",
