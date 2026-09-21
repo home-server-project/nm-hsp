@@ -29,7 +29,7 @@ const (
 	propertiesInterface  = "org.freedesktop.DBus.Properties"
 )
 
-// Client is a read-only NetworkManager D-Bus client at this stage of the project.
+// Client communicates with NetworkManager over the system D-Bus.
 type Client struct {
 	conn *dbus.Conn
 }
