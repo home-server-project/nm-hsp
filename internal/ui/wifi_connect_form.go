@@ -146,19 +146,19 @@ func (f *wifiConnectForm) handleKey(msg tea.KeyPressMsg) (wifiConnectAction, tea
 			switch msg.String() {
 			case "left":
 				f.cycleSecurity(-1)
-			case "right", " ":
+			case "right", "space":
 				f.cycleSecurity(1)
 			}
 		}
 	case wifiConnectShowPassword:
 		switch msg.String() {
-		case "left", "right", " ":
+		case "left", "right", "space":
 			f.showPassword = !f.showPassword
 			f.syncPasswordEcho()
 		}
 	case wifiConnectAutoconnect:
 		switch msg.String() {
-		case "left", "right", " ":
+		case "left", "right", "space":
 			f.autoconnect = !f.autoconnect
 		}
 	}
