@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/home-server-project/nm-hsp/internal/model"
+	"github.com/home-server-project/nm-hsp/internal/security"
 	"github.com/home-server-project/nm-hsp/internal/validation"
 )
 
@@ -193,9 +194,10 @@ func (f *wifiConnectForm) buildRequest() (model.WiFiConnectRequest, error) {
 		AutoconnectPriority: int32(priority),
 	}
 	if f.passwordRequired() {
-		request.Password = f.password.Value()
+		request.Password = security.NewSecret(f.password.Value())
 	}
 	if err := validation.ValidateWiFiConnectRequest(request); err != nil {
+		request.Password.Clear()
 		return model.WiFiConnectRequest{}, err
 	}
 	return request, nil
@@ -204,6 +206,8 @@ func (f *wifiConnectForm) buildRequest() (model.WiFiConnectRequest, error) {
 func (f *wifiConnectForm) clearSecret() {
 	f.password.Reset()
 	f.password.Blur()
+	f.showPassword = false
+	f.syncPasswordEcho()
 }
 
 func (f *wifiConnectForm) render(width int, connecting bool) string {
