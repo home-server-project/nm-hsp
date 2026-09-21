@@ -6,7 +6,7 @@ The project is intended to provide a modern, keyboard-driven interface for ordin
 
 ## Project status
 
-Early development. Checkpoint 6 is implemented on the `testing` branch: `nm-hsp` now includes interactive Ethernet and Wi-Fi management plus an explicit secret-handling hardening layer and regression tests.
+Early development. Checkpoint 7 is implemented on the `testing` branch: `nm-hsp` now includes interactive Ethernet and Wi-Fi management, hardened secret handling, and a friendly network diagnostics and guarded repair workflow.
 
 ## Goals
 
@@ -60,6 +60,7 @@ Controls:
 - Up/Down arrows or `j`/`k` — move between devices.
 - Enter on Ethernet — open the interactive Ethernet settings form.
 - Enter on Wi-Fi — open the interactive Wi-Fi manager.
+- `t` — open Network health & repair.
 - `d` — show or hide device details.
 - `r` — refresh NetworkManager state.
 - `q`, Esc, or Ctrl-C — exit.
@@ -103,6 +104,54 @@ New Enterprise and legacy WEP credential setup are intentionally not implemented
 
 Wi-Fi connection creation and activation use NetworkManager D-Bus directly. Passwords are not passed through shell commands or process arguments, saved passwords are not fetched with `GetSecrets`, and new-password values are redacted from formatting and error paths. The visible form is cleared immediately when Connect is submitted or cancelled; copied `Secret` values share one clear-state; and the temporary D-Bus settings map drops its `psk` entry immediately after the call. See `docs/security.md` for the exact guarantees and limitations.
 
+
+## Network health & repair
+
+Press `t` from the dashboard to open the Checkpoint 7 diagnostics screen.
+
+The health view follows the network chain in normal-user language instead of requiring users to interpret NetworkManager internals. Depending on available hardware and state, it checks:
+
+- Ethernet or Wi-Fi adapter presence.
+- Whether NetworkManager manages the adapter.
+- Ethernet carrier/cable state and reported link speed.
+- Persistent Ethernet profile presence.
+- Active versus inactive saved profiles.
+- Autoconnect state.
+- Saved interface-name binding.
+- Saved Ethernet MAC binding versus the current adapter.
+- Automatic IPv4/DHCP with no effective address.
+- Effective IPv4 address.
+- Default IPv4 gateway presence.
+- Configured DNS servers.
+- A bounded DNS test through the system resolver when an address and DNS are already present.
+- NetworkManager Internet connectivity state.
+- Wi-Fi radio state, adapter availability, and failed Wi-Fi activation.
+
+Diagnostics explicitly keep hardware-driver installation out of scope. If NetworkManager does not expose a supported adapter, nm-hsp explains that state but does not install drivers or firmware.
+
+Repairs are intentionally conservative. nm-hsp currently offers only:
+
+- Create a new persistent automatic Ethernet profile when the adapter is managed, carrier is present, no active connection exists, and no compatible saved Ethernet profile is available.
+- Enable autoconnect on an existing Ethernet profile.
+- Activate an existing compatible Ethernet profile, including a retry of an automatic/DHCP profile that is active without an IPv4 address.
+- Correct a stale Ethernet `interface-name` binding only when the saved profile's hardware-address binding matches the current adapter.
+- Turn the NetworkManager Wi-Fi radio on.
+
+Each repair requires two steps: Enter opens a review screen, then the user explicitly confirms. The review shows the adapter/profile when applicable and the exact **Before → After** change. The backend re-checks current NetworkManager state again before writing, so a stale diagnostics screen cannot blindly apply an old repair decision.
+
+nm-hsp deliberately does **not** guess or automatically rewrite:
+
+- A different saved MAC address.
+- Gateway addresses.
+- DNS server addresses.
+- Static IP configuration.
+- NetworkManager managed/unmanaged policy.
+- Missing hardware drivers or firmware.
+
+After a successful repair, the diagnostics screen immediately reloads NetworkManager state and reruns the checks.
+
+See `docs/diagnostics.md` for the repair safety model and scenario coverage.
+
 ## Source layout
 
 - `cmd/nm-hsp` — application entry point
@@ -111,7 +160,9 @@ Wi-Fi connection creation and activation use NetworkManager D-Bus directly. Pass
 - `internal/ui` — terminal user interface
 - `internal/security` — secret handling and safety helpers
 - `internal/validation` — network input validation
+- `internal/diagnostics` — diagnostic decision engine and bounded active probes
 - `docs/security.md` — credential-handling guarantees, limitations, and regression contracts
+- `docs/diagnostics.md` — diagnostics chain, repair boundaries, and safety model
 
 ## Development workflow
 
