@@ -4,6 +4,7 @@ package networkmanager
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/godbus/dbus/v5"
@@ -163,5 +164,49 @@ func ethernetSettingsFixture() map[string]map[string]dbus.Variant {
 				{"dest": dbus.MakeVariant("2001:db8::/64")},
 			}),
 		},
+	}
+}
+
+
+func TestNewEthernetSettingsCreatesPlainWiredProfile(t *testing.T) {
+	profile := model.EthernetProfile{
+		ID:            "Ethernet enp2s0",
+		UUID:          "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+		InterfaceName: "enp2s0",
+		Autoconnect:   true,
+		MTU:           1500,
+		IPv4:          model.IPProfileConfig{Method: model.IPMethodAuto},
+		IPv6:          model.IPProfileConfig{Method: model.IPMethodAuto},
+	}
+
+	settings := newEthernetSettings(profile)
+	if got := stringValue(settings["connection"], "type"); got != "802-3-ethernet" {
+		t.Fatalf("connection type = %q", got)
+	}
+	if got := stringValue(settings["connection"], "interface-name"); got != "enp2s0" {
+		t.Fatalf("interface-name = %q", got)
+	}
+	if got := stringValue(settings["connection"], "uuid"); got != profile.UUID {
+		t.Fatalf("uuid = %q", got)
+	}
+	if got := stringValue(settings["ipv4"], "method"); got != "auto" {
+		t.Fatalf("IPv4 method = %q", got)
+	}
+}
+
+func TestNewUUIDIsVersion4Shape(t *testing.T) {
+	uuid, err := newUUID()
+	if err != nil {
+		t.Fatalf("newUUID() error = %v", err)
+	}
+	parts := strings.Split(uuid, "-")
+	if len(parts) != 5 || len(parts[0]) != 8 || len(parts[1]) != 4 || len(parts[2]) != 4 || len(parts[3]) != 4 || len(parts[4]) != 12 {
+		t.Fatalf("newUUID() = %q", uuid)
+	}
+	if uuid[14] != '4' {
+		t.Fatalf("newUUID() version nibble = %q", uuid[14])
+	}
+	if !strings.Contains("89ab", strings.ToLower(string(uuid[19]))) {
+		t.Fatalf("newUUID() variant nibble = %q", uuid[19])
 	}
 }

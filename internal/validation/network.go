@@ -144,9 +144,6 @@ func ValidateIPConfig(config model.IPProfileConfig, ipv6 bool) error {
 
 // ValidateEthernetProfile validates all supported editable Ethernet fields.
 func ValidateEthernetProfile(profile model.EthernetProfile) error {
-	if strings.TrimSpace(profile.ProfilePath) == "" {
-		return fmt.Errorf("connection profile path is required")
-	}
 	if strings.TrimSpace(profile.InterfaceName) == "" {
 		return fmt.Errorf("Ethernet interface name is required")
 	}

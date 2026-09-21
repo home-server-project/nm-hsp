@@ -4,6 +4,7 @@ package networkmanager
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 
 	"github.com/godbus/dbus/v5"
@@ -11,7 +12,11 @@ import (
 	"github.com/home-server-project/nm-hsp/internal/validation"
 )
 
-const update2ToDisk uint32 = 0x1
+const (
+	update2ToDisk             uint32 = 0x1
+	addConnection2ToDisk      uint32 = 0x1
+	addConnection2BlockAuto   uint32 = 0x20
+)
 
 // EthernetProfile reads the editable, non-secret subset of a saved Ethernet
 // profile and associates it with the selected NetworkManager device.
@@ -42,6 +47,53 @@ func (c *Client) EthernetProfile(ctx context.Context, profilePath, devicePath st
 	return parseEthernetProfile(settings, profilePath, devicePath, interfaceName)
 }
 
+// SaveEthernetProfile persists a supported Ethernet profile. Existing profiles
+// are updated in place; profiles without a ProfilePath are created on disk.
+// Neither path activates, deactivates, or reapplies the connection.
+func (c *Client) SaveEthernetProfile(ctx context.Context, profile model.EthernetProfile) (model.EthernetProfile, error) {
+	if profile.ProfilePath == "" {
+		return c.CreateEthernetProfile(ctx, profile)
+	}
+	if err := c.UpdateEthernetProfile(ctx, profile); err != nil {
+		return model.EthernetProfile{}, err
+	}
+	return profile, nil
+}
+
+// CreateEthernetProfile creates a new persistent Ethernet profile without
+// activating it.
+func (c *Client) CreateEthernetProfile(ctx context.Context, profile model.EthernetProfile) (model.EthernetProfile, error) {
+	if err := validation.ValidateEthernetProfile(profile); err != nil {
+		return model.EthernetProfile{}, err
+	}
+	if profile.UUID == "" {
+		uuid, err := newUUID()
+		if err != nil {
+			return model.EthernetProfile{}, fmt.Errorf("generate connection UUID: %w", err)
+		}
+		profile.UUID = uuid
+	}
+	if profile.ID == "" {
+		profile.ID = "Ethernet " + profile.InterfaceName
+	}
+
+	settings := newEthernetSettings(profile)
+	var path dbus.ObjectPath
+	var result map[string]dbus.Variant
+	if err := c.call(
+		ctx,
+		settingsPath,
+		settingsInterface+".AddConnection2",
+		settings,
+		addConnection2ToDisk|addConnection2BlockAuto,
+		map[string]dbus.Variant{},
+	).Store(&path, &result); err != nil {
+		return model.EthernetProfile{}, fmt.Errorf("create Ethernet profile: %w", err)
+	}
+	profile.ProfilePath = string(path)
+	return profile, nil
+}
+
 // UpdateEthernetProfile persists supported Ethernet settings to disk. It does
 // not activate, deactivate, or reapply the connection.
 func (c *Client) UpdateEthernetProfile(ctx context.Context, profile model.EthernetProfile) error {
@@ -55,7 +107,7 @@ func (c *Client) UpdateEthernetProfile(ctx context.Context, profile model.Ethern
 	}
 
 	// Re-read immediately before the write so unrelated settings are preserved
-	// and a stale editor cannot accidentally overwrite a different profile.
+	// and a stale form cannot accidentally overwrite a different profile.
 	settings, err := c.connectionSettings(ctx, path)
 	if err != nil {
 		return err
@@ -264,4 +316,35 @@ func ipFamilyName(ipv6 bool) string {
 		return "IPv6"
 	}
 	return "IPv4"
+}
+
+
+func newEthernetSettings(profile model.EthernetProfile) map[string]map[string]dbus.Variant {
+	settings := map[string]map[string]dbus.Variant{
+		"connection": {
+			"id":             dbus.MakeVariant(profile.ID),
+			"uuid":           dbus.MakeVariant(profile.UUID),
+			"type":           dbus.MakeVariant("802-3-ethernet"),
+			"interface-name": dbus.MakeVariant(profile.InterfaceName),
+		},
+	}
+	patchEthernetSettings(settings, profile)
+	return settings
+}
+
+func newUUID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	return fmt.Sprintf(
+		"%x-%x-%x-%x-%x",
+		raw[0:4],
+		raw[4:6],
+		raw[6:8],
+		raw[8:10],
+		raw[10:16],
+	), nil
 }
