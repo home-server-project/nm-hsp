@@ -381,7 +381,6 @@ func validObjectPath(path dbus.ObjectPath) bool {
 	return path != "" && path != "/"
 }
 
-
 func hardwareAddressValue(values map[string]dbus.Variant, key string) string {
 	variant, ok := values[key]
 	if !ok {
