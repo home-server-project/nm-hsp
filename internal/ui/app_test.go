@@ -217,7 +217,7 @@ func TestCompactRenderKeepsEssentialFields(t *testing.T) {
 func TestEnterOnEthernetLoadsInteractiveForm(t *testing.T) {
 	snapshot := sampleSnapshot()
 	source := &fakeSource{
-		snapshot: snapshot,
+		snapshot:        snapshot,
 		ethernetProfile: model.EthernetProfile{
 			ProfilePath:   "/org/freedesktop/NetworkManager/Settings/1",
 			DevicePath:    "/org/freedesktop/NetworkManager/Devices/2",
