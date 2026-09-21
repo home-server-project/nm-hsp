@@ -322,7 +322,7 @@ func (m Model) renderDetails(device model.Device) string {
 func (m Model) renderHelp(width int) string {
 	help := "↑/↓ or j/k navigate   Enter details   r refresh   q/Esc exit"
 	if width < 58 {
-		help = "↑/↓ navigate  Enter details  r refresh  q exit"
+		help = "↑/↓ move  Enter details  r refresh  q exit"
 	}
 	return helpStyle.
 		Width(width).
