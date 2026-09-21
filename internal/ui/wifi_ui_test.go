@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/home-server-project/nm-hsp/internal/model"
+	"github.com/home-server-project/nm-hsp/internal/security"
 )
 
 func TestWiFiPasswordMaskedAndToggleable(t *testing.T) {
@@ -183,5 +185,40 @@ func TestWiFiSubmitClearsVisiblePasswordImmediately(t *testing.T) {
 	}
 	if form.showPassword || form.password.EchoMode != textinput.EchoPassword {
 		t.Fatal("Connect submission must restore masked password mode")
+	}
+}
+
+func TestWiFiConnectCommandClearsSecretAndRedactsBackendError(t *testing.T) {
+	password := security.NewSecret("correct-horse")
+	request := model.WiFiConnectRequest{
+		DevicePath:    "/device",
+		SSID:          "Home Wi-Fi",
+		KeyManagement: "wpa-psk",
+		Password:      password,
+	}
+	source := &fakeSource{
+		wifiConnectErr: errors.New("backend echoed password correct-horse"),
+	}
+	screen := &wifiScreen{source: source}
+
+	msg := screen.connect(request)()
+	operation, ok := msg.(wifiOperationMsg)
+	if !ok {
+		t.Fatalf("connect command returned %T, want wifiOperationMsg", msg)
+	}
+	if operation.err == nil {
+		t.Fatal("expected connection error")
+	}
+	if strings.Contains(operation.err.Error(), "correct-horse") {
+		t.Fatalf("UI connection error leaked password: %q", operation.err)
+	}
+	if !strings.Contains(operation.err.Error(), "[REDACTED]") {
+		t.Fatalf("UI connection error missing redaction marker: %q", operation.err)
+	}
+	if !request.Password.Empty() {
+		t.Fatal("UI-owned request secret should be empty after command completion")
+	}
+	if !source.wifiRequest.Password.Empty() {
+		t.Fatal("backend request copy should observe the same cleared secret state")
 	}
 }

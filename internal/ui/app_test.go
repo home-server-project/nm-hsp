@@ -18,6 +18,8 @@ type fakeSource struct {
 	saveErr         error
 	saved           *model.EthernetProfile
 	wifiNetworks    []model.WiFiNetwork
+	wifiConnectErr  error
+	wifiRequest     model.WiFiConnectRequest
 }
 
 func (f *fakeSource) Snapshot(context.Context) (model.Snapshot, error) {
@@ -68,7 +70,11 @@ func (f *fakeSource) UpdateWiFiProfileMetadata(context.Context, model.WiFiProfil
 	return nil
 }
 
-func (f *fakeSource) ConnectWiFi(context.Context, model.WiFiConnectRequest) (string, string, error) {
+func (f *fakeSource) ConnectWiFi(_ context.Context, request model.WiFiConnectRequest) (string, string, error) {
+	f.wifiRequest = request
+	if f.wifiConnectErr != nil {
+		return "", "", f.wifiConnectErr
+	}
 	return "/profile", "/active", nil
 }
 

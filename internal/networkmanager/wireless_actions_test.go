@@ -81,3 +81,24 @@ func TestSanitizeWiFiConnectErrorRedactsPassword(t *testing.T) {
 		t.Fatalf("sanitized D-Bus error missing redaction marker: %q", err)
 	}
 }
+
+func TestScrubWiFiSettingsSecretDropsTemporaryPSK(t *testing.T) {
+	request := model.WiFiConnectRequest{
+		SSID:          "Home Wi-Fi",
+		KeyManagement: "wpa-psk",
+		Password:      security.NewSecret("correct-horse"),
+		Autoconnect:   true,
+	}
+	defer request.Password.Clear()
+
+	settings := newWiFiSettings(request, "11111111-2222-4333-8444-555555555555")
+	wirelessSecurity := settings["802-11-wireless-security"]
+	if got := stringValue(wirelessSecurity, "psk"); got != "correct-horse" {
+		t.Fatalf("precondition failed: psk = %q", got)
+	}
+
+	scrubWiFiSettingsSecret(settings)
+	if _, ok := wirelessSecurity["psk"]; ok {
+		t.Fatal("temporary D-Bus settings must not retain the PSK after use")
+	}
+}

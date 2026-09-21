@@ -158,7 +158,7 @@ func (c *Client) ConnectWiFi(ctx context.Context, request model.WiFiConnectReque
 	var profilePath dbus.ObjectPath
 	var activePath dbus.ObjectPath
 	var result map[string]dbus.Variant
-	if err := c.call(
+	callErr := c.call(
 		ctx,
 		managerPath,
 		managerInterface+".AddAndActivateConnection2",
@@ -166,11 +166,21 @@ func (c *Client) ConnectWiFi(ctx context.Context, request model.WiFiConnectReque
 		device,
 		specific,
 		options,
-	).Store(&profilePath, &activePath, &result); err != nil {
-		return "", "", sanitizeWiFiConnectError(err, request.Password)
+	).Store(&profilePath, &activePath, &result)
+	scrubWiFiSettingsSecret(settings)
+	if callErr != nil {
+		return "", "", sanitizeWiFiConnectError(callErr, request.Password)
 	}
 
 	return string(profilePath), string(activePath), nil
+}
+
+func scrubWiFiSettingsSecret(settings map[string]map[string]dbus.Variant) {
+	wirelessSecurity := settings["802-11-wireless-security"]
+	if wirelessSecurity == nil {
+		return
+	}
+	delete(wirelessSecurity, "psk")
 }
 
 func sanitizeWiFiConnectError(err error, password security.Secret) error {

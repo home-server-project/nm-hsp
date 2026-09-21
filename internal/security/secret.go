@@ -11,11 +11,15 @@ import (
 
 const redacted = "[REDACTED]"
 
-// Secret holds transient secret bytes without exposing them through the usual
-// fmt/Stringer paths. Clear should be called as soon as the secret is no longer
-// needed.
-type Secret struct {
+type secretState struct {
 	value []byte
+}
+
+// Secret holds transient secret bytes without exposing them through the usual
+// fmt/Stringer paths. Copies share one mutable state so clearing any copy makes
+// every copy empty.
+type Secret struct {
+	state *secretState
 }
 
 // NewSecret copies a transient string into a Secret. Callers should release or
@@ -24,31 +28,39 @@ func NewSecret(value string) Secret {
 	if value == "" {
 		return Secret{}
 	}
-	return Secret{value: []byte(value)}
+	return Secret{state: &secretState{value: []byte(value)}}
+}
+
+func (s Secret) bytes() []byte {
+	if s.state == nil {
+		return nil
+	}
+	return s.state.value
 }
 
 // Empty reports whether the secret currently contains no bytes.
 func (s Secret) Empty() bool {
-	return len(s.value) == 0
+	return len(s.bytes()) == 0
 }
 
 // Len returns the number of bytes in the secret without revealing them.
 func (s Secret) Len() int {
-	return len(s.value)
+	return len(s.bytes())
 }
 
 // Value returns the secret as a string for an API that requires a string.
 // The returned string is transient and cannot be reliably wiped by Go.
 func (s Secret) Value() string {
-	return string(s.value)
+	return string(s.bytes())
 }
 
 // IsHex reports whether every byte in a non-empty secret is hexadecimal.
 func (s Secret) IsHex() bool {
-	if len(s.value) == 0 {
+	value := s.bytes()
+	if len(value) == 0 {
 		return false
 	}
-	for _, b := range s.value {
+	for _, b := range value {
 		if !((b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')) {
 			return false
 		}
@@ -56,15 +68,17 @@ func (s Secret) IsHex() bool {
 	return true
 }
 
-// Clear overwrites the mutable backing bytes and drops the reference.
+// Clear overwrites the shared mutable backing bytes and drops this reference.
+// Other copies observe the same cleared state.
 func (s *Secret) Clear() {
-	if s == nil {
+	if s == nil || s.state == nil {
 		return
 	}
-	for i := range s.value {
-		s.value[i] = 0
+	for i := range s.state.value {
+		s.state.value[i] = 0
 	}
-	s.value = nil
+	s.state.value = nil
+	s.state = nil
 }
 
 // String deliberately never reveals the secret.

@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/home-server-project/nm-hsp/internal/model"
+	"github.com/home-server-project/nm-hsp/internal/security"
 )
 
 type wifiSource interface {
@@ -436,11 +437,16 @@ func (s *wifiScreen) saveProfile(update model.WiFiProfileUpdate) tea.Cmd {
 
 func (s *wifiScreen) connect(request model.WiFiConnectRequest) tea.Cmd {
 	return func() tea.Msg {
+		defer request.Password.Clear()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		_, _, err := s.source.ConnectWiFi(ctx, request)
 		if err != nil {
-			return wifiOperationMsg{kind: wifiOperationConnect, err: err}
+			return wifiOperationMsg{
+				kind: wifiOperationConnect,
+				err:  security.RedactError(err, request.Password),
+			}
 		}
 		return wifiOperationMsg{kind: wifiOperationConnect, notice: "Connected to " + request.SSID + "."}
 	}

@@ -24,13 +24,21 @@ func TestSecretFormattingIsAlwaysRedacted(t *testing.T) {
 	}
 }
 
-func TestSecretClearOverwritesBackingBytes(t *testing.T) {
+func TestSecretClearOverwritesBackingBytesAndAllCopies(t *testing.T) {
 	secret := NewSecret("correct-horse")
-	backing := secret.value
+	copyOfSecret := secret
+	backing := secret.state.value
+
 	secret.Clear()
 
 	if !secret.Empty() {
-		t.Fatal("Clear() should empty the secret")
+		t.Fatal("Clear() should empty the cleared copy")
+	}
+	if !copyOfSecret.Empty() {
+		t.Fatal("Clear() should make all Secret copies empty")
+	}
+	if copyOfSecret.Value() != "" {
+		t.Fatal("cleared Secret copy should not return a value")
 	}
 	for i, b := range backing {
 		if b != 0 {
