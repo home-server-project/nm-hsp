@@ -70,7 +70,7 @@ func TestSavedWiFiProfileDoesNotExposePassword(t *testing.T) {
 
 func TestWiFiActionMenuForSavedNetwork(t *testing.T) {
 	screen := &wifiScreen{
-		device: model.Device{Interface: "wlan0"},
+		device:   model.Device{Interface: "wlan0"},
 		snapshot: model.Snapshot{},
 	}
 	item := wifiListItem{
