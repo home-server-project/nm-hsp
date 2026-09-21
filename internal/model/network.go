@@ -36,6 +36,9 @@ type ConnectionProfile struct {
 	SSID                string
 	Hidden              bool
 	KeyManagement       string
+	IPv4Method          string
+	IPv6Method          string
+	WiredMACAddress     string
 }
 
 // WirelessState contains runtime information for a Wi-Fi device.

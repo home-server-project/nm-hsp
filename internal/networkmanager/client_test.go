@@ -83,3 +83,17 @@ func TestBoolValueDefault(t *testing.T) {
 		t.Fatal("explicit false autoconnect must be preserved")
 	}
 }
+
+func TestHardwareAddressValue(t *testing.T) {
+	values := map[string]dbus.Variant{
+		"mac-address": dbus.MakeVariant([]byte{0x90, 0x8d, 0x6e, 0x8a, 0xc0, 0xb1}),
+	}
+	if got := hardwareAddressValue(values, "mac-address"); got != "90:8D:6E:8A:C0:B1" {
+		t.Fatalf("hardwareAddressValue() = %q", got)
+	}
+
+	values["mac-address"] = dbus.MakeVariant("90:8d:6e:8a:c0:b1")
+	if got := hardwareAddressValue(values, "mac-address"); got != "90:8D:6E:8A:C0:B1" {
+		t.Fatalf("string hardwareAddressValue() = %q", got)
+	}
+}

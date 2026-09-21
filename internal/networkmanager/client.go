@@ -5,6 +5,7 @@ package networkmanager
 import (
 	"context"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 
@@ -118,6 +119,9 @@ func (c *Client) readProfiles(ctx context.Context) ([]model.ConnectionProfile, m
 		connection := settings["connection"]
 		wireless := settings["802-11-wireless"]
 		security := settings["802-11-wireless-security"]
+		wired := settings["802-3-ethernet"]
+		ipv4 := settings["ipv4"]
+		ipv6 := settings["ipv6"]
 		profile := model.ConnectionProfile{
 			ObjectPath:          string(path),
 			ID:                  stringValue(connection, "id"),
@@ -129,6 +133,9 @@ func (c *Client) readProfiles(ctx context.Context) ([]model.ConnectionProfile, m
 			SSID:                ssidValue(wireless, "ssid"),
 			Hidden:              boolValue(wireless, "hidden"),
 			KeyManagement:       stringValue(security, "key-mgmt"),
+			IPv4Method:          stringValue(ipv4, "method"),
+			IPv6Method:          stringValue(ipv6, "method"),
+			WiredMACAddress:     hardwareAddressValue(wired, "mac-address"),
 		}
 
 		profiles = append(profiles, profile)
@@ -372,4 +379,23 @@ func ssidValue(values map[string]dbus.Variant, key string) string {
 
 func validObjectPath(path dbus.ObjectPath) bool {
 	return path != "" && path != "/"
+}
+
+
+func hardwareAddressValue(values map[string]dbus.Variant, key string) string {
+	variant, ok := values[key]
+	if !ok {
+		return ""
+	}
+	switch value := variant.Value().(type) {
+	case []byte:
+		if len(value) == 0 {
+			return ""
+		}
+		return strings.ToUpper(net.HardwareAddr(value).String())
+	case string:
+		return strings.ToUpper(strings.TrimSpace(value))
+	default:
+		return ""
+	}
 }
