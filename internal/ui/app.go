@@ -19,6 +19,7 @@ type NetworkSource interface {
 	wifiSource
 	EthernetProfile(context.Context, string, string) (model.EthernetProfile, error)
 	SaveEthernetProfile(context.Context, model.EthernetProfile) (model.EthernetProfile, error)
+	ApplyRepair(context.Context, model.RepairAction) error
 }
 
 type snapshotMsg struct {
@@ -58,6 +59,7 @@ type Model struct {
 	formSaving  bool
 	form        *ethernetForm
 	wifi        *wifiScreen
+	diagnostics *diagnosticsScreen
 	err         error
 	notice      string
 }
@@ -83,6 +85,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if m.diagnostics != nil {
+		closeScreen, cmd := m.diagnostics.update(msg)
+		if closeScreen {
+			m.diagnostics = nil
+			m.loading = true
+			m.err = nil
+			return m, m.loadSnapshot()
+		}
+		return m, cmd
 	}
 	if m.wifi != nil {
 		closeScreen, cmd := m.wifi.update(msg)
@@ -198,6 +210,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.wifi.init()
 			}
 			m.expanded = !m.expanded
+
+		case "t":
+			m.notice = ""
+			m.diagnostics = newDiagnosticsScreen(m.source)
+			return m, m.diagnostics.init()
 
 		case "d":
 			m.notice = ""
@@ -373,6 +390,9 @@ func (m Model) render() string {
 		width = 32
 	}
 
+	if m.diagnostics != nil {
+		return m.diagnostics.render(width-2, m.height)
+	}
 	if m.wifi != nil {
 		return m.wifi.render(width - 2)
 	}
@@ -542,9 +562,9 @@ func (m Model) renderDetails(device model.Device) string {
 }
 
 func (m Model) renderHelp(width int) string {
-	help := "↑/↓ or j/k navigate   Enter Ethernet settings / Wi-Fi manager   d details   r refresh   q exit"
+	help := "↑/↓ or j/k navigate   Enter select   t troubleshoot   d details   r refresh   q exit"
 	if width < 68 {
-		help = "↑/↓ move   Enter select   d details   r refresh   q exit"
+		help = "↑/↓ move   Enter select   t troubleshoot   r refresh   q exit"
 	}
 	return helpStyle.
 		Width(width).

@@ -20,6 +20,8 @@ type fakeSource struct {
 	wifiNetworks    []model.WiFiNetwork
 	wifiConnectErr  error
 	wifiRequest     model.WiFiConnectRequest
+	repairErr       error
+	appliedRepair   *model.RepairAction
 }
 
 func (f *fakeSource) Snapshot(context.Context) (model.Snapshot, error) {
@@ -76,6 +78,15 @@ func (f *fakeSource) ConnectWiFi(_ context.Context, request model.WiFiConnectReq
 		return "", "", f.wifiConnectErr
 	}
 	return "/profile", "/active", nil
+}
+
+func (f *fakeSource) ApplyRepair(_ context.Context, action model.RepairAction) error {
+	if f.repairErr != nil {
+		return f.repairErr
+	}
+	copy := action
+	f.appliedRepair = &copy
+	return nil
 }
 
 func boolPtr(value bool) *bool {
@@ -342,5 +353,22 @@ func TestEnterOnWiFiOpensManager(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("Wi-Fi manager should refresh networks when opened")
+	}
+}
+
+func TestTroubleshootKeyOpensDiagnostics(t *testing.T) {
+	snapshot := sampleSnapshot()
+	source := &fakeSource{snapshot: snapshot}
+	m := New(source)
+	m.snapshot = snapshot
+	m.loading = false
+
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 't'}))
+	m = updated.(Model)
+	if m.diagnostics == nil {
+		t.Fatal("t should open Network health & repair")
+	}
+	if cmd == nil {
+		t.Fatal("diagnostics screen should start a fresh diagnostic run")
 	}
 }

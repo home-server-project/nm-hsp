@@ -391,10 +391,7 @@ func analyzeDNS(snapshot model.Snapshot, probe model.DiagnosticProbe) []model.Di
 			Detail: "A test lookup completed successfully.",
 		}}
 	}
-	detail := "DNS servers are configured, but a test lookup failed."
-	if probe.DNSError != "" {
-		detail += " " + probe.DNSError
-	}
+	detail := "DNS servers are configured, but a DNS test lookup failed."
 	return []model.DiagnosticCheck{{
 		ID:     "dns-lookup-failed",
 		Status: model.DiagnosticProblem,
