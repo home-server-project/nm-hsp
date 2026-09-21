@@ -83,7 +83,7 @@ func (f *wifiProfileForm) handleKey(msg tea.KeyPressMsg) (wifiProfileAction, tea
 
 	if f.field == wifiProfileAutoconnect {
 		switch msg.String() {
-		case "left", "right", " ":
+		case "left", "right", "space":
 			f.autoconnect = !f.autoconnect
 		}
 	}
