@@ -157,7 +157,6 @@ func TestOutOfRangeSavedWiFiProfileIsListed(t *testing.T) {
 	}
 }
 
-
 func TestWiFiSubmitClearsVisiblePasswordImmediately(t *testing.T) {
 	form := newVisibleWiFiConnectForm("/device", model.WiFiNetwork{
 		ObjectPath:    "/ap",
