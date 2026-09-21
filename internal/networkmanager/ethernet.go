@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	update2ToDisk             uint32 = 0x1
-	addConnection2ToDisk      uint32 = 0x1
-	addConnection2BlockAuto   uint32 = 0x20
+	update2ToDisk           uint32 = 0x1
+	addConnection2ToDisk    uint32 = 0x1
+	addConnection2BlockAuto uint32 = 0x20
 )
 
 // EthernetProfile reads the editable, non-secret subset of a saved Ethernet
@@ -317,7 +317,6 @@ func ipFamilyName(ipv6 bool) string {
 	}
 	return "IPv4"
 }
-
 
 func newEthernetSettings(profile model.EthernetProfile) map[string]map[string]dbus.Variant {
 	settings := map[string]map[string]dbus.Variant{

@@ -167,7 +167,6 @@ func ethernetSettingsFixture() map[string]map[string]dbus.Variant {
 	}
 }
 
-
 func TestNewEthernetSettingsCreatesPlainWiredProfile(t *testing.T) {
 	profile := model.EthernetProfile{
 		ID:            "Ethernet enp2s0",
