@@ -116,6 +116,8 @@ func (c *Client) readProfiles(ctx context.Context) ([]model.ConnectionProfile, m
 		}
 
 		connection := settings["connection"]
+		wireless := settings["802-11-wireless"]
+		security := settings["802-11-wireless-security"]
 		profile := model.ConnectionProfile{
 			ObjectPath:          string(path),
 			ID:                  stringValue(connection, "id"),
@@ -124,6 +126,9 @@ func (c *Client) readProfiles(ctx context.Context) ([]model.ConnectionProfile, m
 			InterfaceName:       stringValue(connection, "interface-name"),
 			Autoconnect:         boolValueDefault(connection, "autoconnect", true),
 			AutoconnectPriority: int32Value(connection, "autoconnect-priority"),
+			SSID:                ssidValue(wireless, "ssid"),
+			Hidden:              boolValue(wireless, "hidden"),
+			KeyManagement:       stringValue(security, "key-mgmt"),
 		}
 
 		profiles = append(profiles, profile)
@@ -175,6 +180,7 @@ func (c *Client) readDevice(ctx context.Context, path dbus.ObjectPath, profiles 
 	}
 
 	if path := objectPathValue(props, "ActiveConnection"); validObjectPath(path) {
+		device.ActiveConnectionPath = string(path)
 		profile, err := c.readActiveProfile(ctx, path, profiles)
 		if err != nil {
 			return model.Device{}, err

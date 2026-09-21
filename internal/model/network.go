@@ -33,6 +33,9 @@ type ConnectionProfile struct {
 	InterfaceName       string
 	Autoconnect         bool
 	AutoconnectPriority int32
+	SSID                string
+	Hidden              bool
+	KeyManagement       string
 }
 
 // WirelessState contains runtime information for a Wi-Fi device.
@@ -40,6 +43,34 @@ type WirelessState struct {
 	SSID        string
 	Signal      uint8
 	BitrateKbps uint32
+}
+
+// WiFiSecurity is the friendly security classification shown in the UI.
+type WiFiSecurity string
+
+const (
+	WiFiSecurityOpen         WiFiSecurity = "Open"
+	WiFiSecurityOWE          WiFiSecurity = "Enhanced Open (OWE)"
+	WiFiSecurityPersonal     WiFiSecurity = "WPA/WPA2 Personal"
+	WiFiSecurityWPA3Personal WiFiSecurity = "WPA3 Personal"
+	WiFiSecurityEnterprise   WiFiSecurity = "Enterprise"
+	WiFiSecurityWEP          WiFiSecurity = "Legacy WEP"
+	WiFiSecurityUnknown      WiFiSecurity = "Unknown"
+)
+
+// WiFiNetwork is one scanned access point normalized for the UI.
+type WiFiNetwork struct {
+	ObjectPath     string
+	SSID           string
+	BSSID          string
+	Strength       uint8
+	FrequencyMHz   uint32
+	MaxBitrateKbps uint32
+	Security       WiFiSecurity
+	KeyManagement string
+	Hidden         bool
+	Known          bool
+	Active         bool
 }
 
 // Device is the normalized application-facing view of a NetworkManager device.
@@ -58,6 +89,7 @@ type Device struct {
 	IPv4                  IPConfig
 	IPv6                  IPConfig
 	ActiveConnection      *ConnectionProfile
+	ActiveConnectionPath  string
 	AvailableProfileUUIDs []string
 	Wireless              *WirelessState
 }
