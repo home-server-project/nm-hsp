@@ -1,0 +1,5 @@
+/bin/
+/dist/
+/nm-hsp
+*.out
+*.test
