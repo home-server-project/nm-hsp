@@ -6,43 +6,40 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/home-server-project/nm-hsp/internal/model"
 )
 
-type fakeResult struct {
-	output string
-	err    error
+type fakeServices struct {
+	states map[string]serviceState
+	errs   map[string]error
 }
 
-type fakeRunner struct {
-	paths   map[string]bool
-	results map[string]fakeResult
-	calls   []string
-}
-
-func (f *fakeRunner) LookPath(name string) (string, error) {
-	if f.paths[name] {
-		return "/usr/bin/" + name, nil
+func (f fakeServices) UnitState(_ context.Context, unit string) (serviceState, error) {
+	if err := f.errs[unit]; err != nil {
+		return serviceState{}, err
 	}
-	return "", errors.New("not found")
+	return f.states[unit], nil
 }
 
-func (f *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
-	key := strings.Join(append([]string{name}, args...), " ")
-	f.calls = append(f.calls, key)
-	result, ok := f.results[key]
-	if !ok {
-		return nil, errors.New("unexpected command: " + key)
-	}
-	return []byte(result.output), result.err
+type fakeProviderStatus struct {
+	states    map[model.VPNProviderID]providerStatus
+	available map[model.VPNProviderID]bool
+	errs      map[model.VPNProviderID]error
 }
+
+func (f fakeProviderStatus) Status(_ context.Context, id model.VPNProviderID) (providerStatus, bool, error) {
+	return f.states[id], f.available[id], f.errs[id]
+}
+
+type fakeInstalled map[string]bool
+
+func (f fakeInstalled) Installed(name string) bool { return f[name] }
 
 func TestSnapshotAlwaysListsSupportedProviders(t *testing.T) {
-	runner := &fakeRunner{paths: map[string]bool{}, results: map[string]fakeResult{}}
-	states := newManager(runner).Snapshot(context.Background())
+	manager := newManager(fakeServices{}, fakeProviderStatus{}, fakeInstalled{})
+	states := manager.Snapshot(context.Background())
 
 	if len(states) != 2 {
 		t.Fatalf("provider count = %d, want 2", len(states))
@@ -53,88 +50,72 @@ func TestSnapshotAlwaysListsSupportedProviders(t *testing.T) {
 	if states[1].ID != model.VPNProviderNetBird || states[1].Installed {
 		t.Fatalf("netbird state = %#v", states[1])
 	}
-	if len(runner.calls) != 0 {
-		t.Fatalf("uninstalled providers executed commands: %#v", runner.calls)
-	}
 }
 
 func TestTailscaleConnectedState(t *testing.T) {
-	runner := &fakeRunner{
-		paths: map[string]bool{"tailscale": true},
-		results: map[string]fakeResult{
-			"systemctl is-enabled tailscaled.service": {output: "enabled\n"},
-			"systemctl is-active tailscaled.service":  {output: "active\n"},
-			"tailscale status --json":                 {output: `{"BackendState":"Running","TailscaleIPs":["100.64.0.10","fd7a:115c:a1e0::10"]}`},
+	manager := newManager(
+		fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: true, active: "active"}}},
+		fakeProviderStatus{
+			states: map[model.VPNProviderID]providerStatus{
+				model.VPNProviderTailscale: {state: "Running", connected: true, addresses: []string{"100.64.0.10"}},
+			},
+			available: map[model.VPNProviderID]bool{model.VPNProviderTailscale: true},
 		},
-	}
+		fakeInstalled{"tailscale": true},
+	)
 
-	state := newManager(runner).Snapshot(context.Background())[0]
+	state := manager.Snapshot(context.Background())[0]
 	if !state.Installed || !state.ServiceEnabled || !state.ServiceRunning || !state.Connected {
 		t.Fatalf("tailscale state = %#v", state)
 	}
-	if state.ConnectionState != "Running" {
-		t.Fatalf("connection state = %q, want Running", state.ConnectionState)
-	}
-	wantAddresses := []string{"100.64.0.10", "fd7a:115c:a1e0::10"}
-	if !reflect.DeepEqual(state.Addresses, wantAddresses) {
-		t.Fatalf("addresses = %#v, want %#v", state.Addresses, wantAddresses)
-	}
-}
-
-func TestNetBirdConnectedStateNormalizesCIDRs(t *testing.T) {
-	runner := &fakeRunner{
-		paths: map[string]bool{"netbird": true},
-		results: map[string]fakeResult{
-			"systemctl is-enabled netbird.service": {output: "disabled\n", err: errors.New("exit status 1")},
-			"systemctl is-active netbird.service":  {output: "active\n"},
-			"netbird status --json":                {output: `{"daemonStatus":"Connected","management":{"connected":true},"netbirdIp":"100.119.62.6/16","netbirdIpv6":"fd00::6/64"}`},
-		},
-	}
-
-	state := newManager(runner).Snapshot(context.Background())[1]
-	if !state.Installed || state.ServiceEnabled || !state.ServiceRunning || !state.Connected {
-		t.Fatalf("netbird state = %#v", state)
-	}
-	wantAddresses := []string{"100.119.62.6", "fd00::6"}
-	if !reflect.DeepEqual(state.Addresses, wantAddresses) {
-		t.Fatalf("addresses = %#v, want %#v", state.Addresses, wantAddresses)
-	}
-	if state.StatusError != "" {
-		t.Fatalf("disabled service should not be an error: %q", state.StatusError)
-	}
-}
-
-func TestInactiveServiceDoesNotQueryProvider(t *testing.T) {
-	runner := &fakeRunner{
-		paths: map[string]bool{"tailscale": true},
-		results: map[string]fakeResult{
-			"systemctl is-enabled tailscaled.service": {output: "disabled\n", err: errors.New("exit status 1")},
-			"systemctl is-active tailscaled.service":  {output: "inactive\n", err: errors.New("exit status 3")},
-		},
-	}
-
-	state := newManager(runner).Snapshot(context.Background())[0]
-	if state.ServiceRunning || state.ConnectionState != "inactive" {
+	if state.ConnectionState != "Running" || !reflect.DeepEqual(state.Addresses, []string{"100.64.0.10"}) {
 		t.Fatalf("tailscale state = %#v", state)
 	}
-	for _, call := range runner.calls {
-		if call == "tailscale status --json" {
-			t.Fatal("inactive service should not query provider CLI")
-		}
+}
+
+func TestInactiveServiceNeedsNoProviderStatus(t *testing.T) {
+	manager := newManager(
+		fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: false, active: "inactive"}}},
+		fakeProviderStatus{errs: map[model.VPNProviderID]error{model.VPNProviderTailscale: errors.New("must not be observed")}},
+		fakeInstalled{"tailscale": true},
+	)
+
+	state := manager.Snapshot(context.Background())[0]
+	if state.ServiceRunning || state.ConnectionState != "inactive" || state.StatusError != "" {
+		t.Fatalf("tailscale state = %#v", state)
+	}
+}
+
+func TestNetBirdRunningWithoutJSONSocketIsHonest(t *testing.T) {
+	manager := newManager(
+		fakeServices{states: map[string]serviceState{"netbird.service": {enabled: true, active: "active"}}},
+		fakeProviderStatus{
+			available: map[model.VPNProviderID]bool{model.VPNProviderNetBird: false},
+			errs:      map[model.VPNProviderID]error{model.VPNProviderNetBird: errStatusUnavailable},
+		},
+		fakeInstalled{"netbird": true},
+	)
+
+	state := manager.Snapshot(context.Background())[1]
+	if !state.Installed || !state.ServiceRunning || state.ConnectionState != "unavailable" {
+		t.Fatalf("netbird state = %#v", state)
+	}
+	if state.Connected || len(state.Addresses) != 0 || state.StatusError != "" {
+		t.Fatalf("optional NetBird status absence should not be an error: %#v", state)
 	}
 }
 
 func TestProviderStatusFailureIsContained(t *testing.T) {
-	runner := &fakeRunner{
-		paths: map[string]bool{"tailscale": true},
-		results: map[string]fakeResult{
-			"systemctl is-enabled tailscaled.service": {output: "enabled\n"},
-			"systemctl is-active tailscaled.service":  {output: "active\n"},
-			"tailscale status --json":                 {output: "not-json", err: errors.New("exit status 1")},
+	manager := newManager(
+		fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: true, active: "active"}}},
+		fakeProviderStatus{
+			available: map[model.VPNProviderID]bool{model.VPNProviderTailscale: true},
+			errs:      map[model.VPNProviderID]error{model.VPNProviderTailscale: errors.New("bad response")},
 		},
-	}
+		fakeInstalled{"tailscale": true},
+	)
 
-	states := newManager(runner).Snapshot(context.Background())
+	states := manager.Snapshot(context.Background())
 	if states[0].ConnectionState != "unknown" || states[0].StatusError == "" {
 		t.Fatalf("tailscale failure state = %#v", states[0])
 	}
@@ -143,15 +124,55 @@ func TestProviderStatusFailureIsContained(t *testing.T) {
 	}
 }
 
-func TestParseNetBirdStatusFallsBackToManagementState(t *testing.T) {
-	state, connected, addresses, err := parseNetBirdStatus([]byte(`{"management":{"connected":true},"netbirdIp":"100.64.10.20/16"}`))
-	if err != nil {
-		t.Fatal(err)
+func TestServiceFailureIsContained(t *testing.T) {
+	manager := newManager(
+		fakeServices{errs: map[string]error{"tailscaled.service": errors.New("dbus unavailable")}},
+		fakeProviderStatus{},
+		fakeInstalled{"tailscale": true},
+	)
+
+	state := manager.Snapshot(context.Background())[0]
+	if state.ConnectionState != "unknown" || state.StatusError == "" {
+		t.Fatalf("tailscale state = %#v", state)
 	}
-	if state != "Connected" || !connected {
-		t.Fatalf("state = %q connected = %v", state, connected)
+}
+
+func TestNormalizeTailscaleStatus(t *testing.T) {
+	state := normalizeTailscaleStatus(tailscaleStatus{
+		BackendState: "Running",
+		TailscaleIPs: []string{"100.64.0.10", "fd7a:115c:a1e0::10"},
+	})
+	if !state.connected || state.state != "Running" {
+		t.Fatalf("tailscale provider status = %#v", state)
 	}
-	if !reflect.DeepEqual(addresses, []string{"100.64.10.20"}) {
-		t.Fatalf("addresses = %#v", addresses)
+	want := []string{"100.64.0.10", "fd7a:115c:a1e0::10"}
+	if !reflect.DeepEqual(state.addresses, want) {
+		t.Fatalf("addresses = %#v, want %#v", state.addresses, want)
+	}
+}
+
+func TestNormalizeNetBirdStatus(t *testing.T) {
+	status := netBirdGatewayStatus{Status: "Connected"}
+	status.FullStatus = &struct {
+		LocalPeerState *struct {
+			IP      string `json:"IP"`
+			IPLower string `json:"ip"`
+			IPv6    string `json:"ipv6"`
+		} `json:"localPeerState"`
+	}{
+		LocalPeerState: &struct {
+			IP      string `json:"IP"`
+			IPLower string `json:"ip"`
+			IPv6    string `json:"ipv6"`
+		}{IP: "100.119.62.6/16", IPv6: "fd00::6/64"},
+	}
+
+	state := normalizeNetBirdStatus(status)
+	if !state.connected || state.state != "Connected" {
+		t.Fatalf("netbird provider status = %#v", state)
+	}
+	want := []string{"100.119.62.6", "fd00::6"}
+	if !reflect.DeepEqual(state.addresses, want) {
+		t.Fatalf("addresses = %#v, want %#v", state.addresses, want)
 	}
 }
