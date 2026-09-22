@@ -50,21 +50,21 @@ type ethernetSaveErrMsg struct {
 
 // Model is the NetworkManager-HSP terminal interface.
 type Model struct {
-	source      NetworkSource
-	snapshot    model.Snapshot
-	width       int
-	height      int
-	cursor      int
-	expanded    bool
-	loading     bool
-	formLoading bool
-	formSaving  bool
+	source       NetworkSource
+	snapshot     model.Snapshot
+	width        int
+	height       int
+	cursor       int
+	expanded     bool
+	loading      bool
+	formLoading  bool
+	formSaving   bool
 	form         *ethernetForm
 	ethernetMenu *ethernetActionMenu
 	wifi         *wifiScreen
-	diagnostics *diagnosticsScreen
-	err         error
-	notice      string
+	diagnostics  *diagnosticsScreen
+	err          error
+	notice       string
 }
 
 // New creates the TUI model.
