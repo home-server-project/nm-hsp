@@ -21,27 +21,66 @@ import (
 
 const (
 	tailscaleSocket   = "/var/run/tailscale/tailscaled.sock"
-	netBirdJSONSocket = "/var/run/netbird-http.sock"
 	maxStatusResponse = 2 << 20
 )
 
 var errStatusUnavailable = errors.New("provider status interface unavailable")
 
-type localAPIReader struct{}
+type localProviderBackend struct {
+	netbird netBirdRPC
+}
 
-func (localAPIReader) Status(ctx context.Context, provider model.VPNProviderID) (providerStatus, bool, error) {
+func newLocalProviderBackend() *localProviderBackend {
+	return &localProviderBackend{netbird: netBirdRPC{}}
+}
+
+func (b *localProviderBackend) Status(ctx context.Context, provider model.VPNProviderID) (providerStatus, bool, error) {
 	switch provider {
 	case model.VPNProviderTailscale:
 		return readTailscaleStatus(ctx)
 	case model.VPNProviderNetBird:
-		return readNetBirdStatus(ctx)
+		return b.netbird.Status(ctx)
 	default:
 		return providerStatus{}, false, errStatusUnavailable
 	}
 }
 
+func (b *localProviderBackend) Connect(ctx context.Context, provider model.VPNProviderID) (providerActionResult, error) {
+	switch provider {
+	case model.VPNProviderTailscale:
+		return connectTailscale(ctx)
+	case model.VPNProviderNetBird:
+		return b.netbird.Connect(ctx)
+	default:
+		return providerActionResult{}, errStatusUnavailable
+	}
+}
+
+func (b *localProviderBackend) Disconnect(ctx context.Context, provider model.VPNProviderID) error {
+	switch provider {
+	case model.VPNProviderTailscale:
+		return setTailscaleWantRunning(ctx, false)
+	case model.VPNProviderNetBird:
+		return b.netbird.Disconnect(ctx)
+	default:
+		return errStatusUnavailable
+	}
+}
+
+func (b *localProviderBackend) WaitAuthentication(ctx context.Context, provider model.VPNProviderID, userCode string) (providerActionResult, error) {
+	switch provider {
+	case model.VPNProviderTailscale:
+		return waitForTailscaleAuthentication(ctx)
+	case model.VPNProviderNetBird:
+		return b.netbird.WaitAuthentication(ctx, userCode)
+	default:
+		return providerActionResult{}, errStatusUnavailable
+	}
+}
+
 type tailscaleStatus struct {
 	BackendState string   `json:"BackendState"`
+	AuthURL      string   `json:"AuthURL"`
 	TailscaleIPs []string `json:"TailscaleIPs"`
 }
 
@@ -65,51 +104,99 @@ func normalizeTailscaleStatus(status tailscaleStatus) providerStatus {
 		state:     state,
 		connected: state == "Running",
 		addresses: normalizeAddresses(status.TailscaleIPs),
+		authURL:   strings.TrimSpace(status.AuthURL),
 	}
 }
 
-type netBirdGatewayStatus struct {
-	Status     string `json:"status"`
-	FullStatus *struct {
-		LocalPeerState *struct {
-			IP      string `json:"IP"`
-			IPLower string `json:"ip"`
-			IPv6    string `json:"ipv6"`
-		} `json:"localPeerState"`
-	} `json:"fullStatus"`
-}
+func connectTailscale(ctx context.Context) (providerActionResult, error) {
+	if err := setTailscaleWantRunning(ctx, true); err != nil {
+		return providerActionResult{}, err
+	}
 
-func readNetBirdStatus(ctx context.Context) (providerStatus, bool, error) {
-	body := []byte(`{"getFullPeerStatus":true,"shouldRunProbes":false}`)
-	var status netBirdGatewayStatus
-	if err := queryUnixJSON(ctx, netBirdJSONSocket, http.MethodPost, "/daemon.DaemonService/Status", body, &status); err != nil {
-		if errors.Is(err, errStatusUnavailable) {
-			return providerStatus{}, false, err
+	state, _, err := readTailscaleStatus(ctx)
+	if err != nil {
+		return providerActionResult{}, err
+	}
+	if state.connected {
+		return providerActionResult{message: "Tailscale connected."}, nil
+	}
+
+	if state.authURL == "" && strings.EqualFold(state.state, "NeedsLogin") {
+		if err := postTailscaleLoginInteractive(ctx); err != nil {
+			return providerActionResult{}, err
 		}
-		return providerStatus{}, true, err
+		state, err = waitForTailscaleAuthURL(ctx)
+		if err != nil {
+			return providerActionResult{}, err
+		}
 	}
-	return normalizeNetBirdStatus(status), true, nil
+
+	if state.connected {
+		return providerActionResult{message: "Tailscale connected."}, nil
+	}
+	if state.authURL != "" {
+		return providerActionResult{
+			message:      "Open the Tailscale login URL to finish authentication.",
+			authURL:      state.authURL,
+			awaitingAuth: true,
+		}, nil
+	}
+	return providerActionResult{message: "Tailscale connection requested."}, nil
 }
 
-func normalizeNetBirdStatus(status netBirdGatewayStatus) providerStatus {
-	state := strings.TrimSpace(status.Status)
-	if state == "" {
-		state = "unknown"
+func setTailscaleWantRunning(ctx context.Context, running bool) error {
+	body, err := json.Marshal(map[string]any{
+		"WantRunning":    running,
+		"WantRunningSet": true,
+	})
+	if err != nil {
+		return err
 	}
+	var response map[string]any
+	return queryUnixJSON(ctx, tailscaleSocket, http.MethodPatch, "/localapi/v0/prefs", body, &response)
+}
 
-	var addresses []string
-	if status.FullStatus != nil && status.FullStatus.LocalPeerState != nil {
-		ipv4 := status.FullStatus.LocalPeerState.IP
-		if ipv4 == "" {
-			ipv4 = status.FullStatus.LocalPeerState.IPLower
+func postTailscaleLoginInteractive(ctx context.Context) error {
+	return queryUnixJSON(ctx, tailscaleSocket, http.MethodPost, "/localapi/v0/login-interactive", nil, nil)
+}
+
+func waitForTailscaleAuthURL(ctx context.Context) (providerStatus, error) {
+	timeout := time.NewTimer(10 * time.Second)
+	defer timeout.Stop()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		state, _, err := readTailscaleStatus(ctx)
+		if err == nil && (state.connected || state.authURL != "") {
+			return state, nil
 		}
-		addresses = normalizeAddresses([]string{ipv4, status.FullStatus.LocalPeerState.IPv6})
-	}
 
-	return providerStatus{
-		state:     state,
-		connected: strings.EqualFold(state, "Connected"),
-		addresses: addresses,
+		select {
+		case <-ctx.Done():
+			return providerStatus{}, ctx.Err()
+		case <-timeout.C:
+			return providerStatus{}, errors.New("Tailscale did not provide a login URL")
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForTailscaleAuthentication(ctx context.Context) (providerActionResult, error) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		state, _, err := readTailscaleStatus(ctx)
+		if err == nil && state.connected {
+			return providerActionResult{message: "Tailscale authentication completed and the connection is active."}, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return providerActionResult{}, ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -156,10 +243,14 @@ func queryUnixJSON(ctx context.Context, socketPath, method, requestPath string, 
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("local API returned HTTP %d", resp.StatusCode)
 	}
+	if out == nil || resp.StatusCode == http.StatusNoContent {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		return nil
+	}
 
 	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxStatusResponse))
 	if err := decoder.Decode(out); err != nil {
-		return fmt.Errorf("decode local API status: %w", err)
+		return fmt.Errorf("decode local API response: %w", err)
 	}
 	return nil
 }

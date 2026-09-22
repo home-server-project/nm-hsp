@@ -5,6 +5,7 @@ package vpn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,13 +13,11 @@ import (
 	"github.com/home-server-project/nm-hsp/internal/model"
 )
 
-// Manager collects the supported private-access providers in a stable order.
-// Step 1 is intentionally read-only: it detects provider presence, systemd
-// lifecycle state, and provider status where a supported local API is present.
+// Manager owns the small, provider-neutral private-access lifecycle surface.
 type Manager struct {
 	providers []providerSpec
-	services  serviceStateReader
-	status    providerStatusReader
+	services  serviceManager
+	backend   providerBackend
 	installed executableDetector
 }
 
@@ -38,14 +37,27 @@ type providerStatus struct {
 	state     string
 	connected bool
 	addresses []string
+	authURL   string
 }
 
-type serviceStateReader interface {
+type providerActionResult struct {
+	message      string
+	authURL      string
+	userCode     string
+	awaitingAuth bool
+}
+
+type serviceManager interface {
 	UnitState(context.Context, string) (serviceState, error)
+	EnableAndStart(context.Context, string) error
+	StopAndDisable(context.Context, string) error
 }
 
-type providerStatusReader interface {
+type providerBackend interface {
 	Status(context.Context, model.VPNProviderID) (providerStatus, bool, error)
+	Connect(context.Context, model.VPNProviderID) (providerActionResult, error)
+	Disconnect(context.Context, model.VPNProviderID) error
+	WaitAuthentication(context.Context, model.VPNProviderID, string) (providerActionResult, error)
 }
 
 type executableDetector interface {
@@ -54,17 +66,17 @@ type executableDetector interface {
 
 // NewManager builds the host provider manager used by nm-hsp.
 func NewManager() *Manager {
-	return newManager(systemdReader{}, localAPIReader{}, pathExecutableDetector{})
+	return newManager(systemdReader{}, newLocalProviderBackend(), pathExecutableDetector{})
 }
 
-func newManager(services serviceStateReader, status providerStatusReader, installed executableDetector) *Manager {
+func newManager(services serviceManager, backend providerBackend, installed executableDetector) *Manager {
 	return &Manager{
 		providers: []providerSpec{
 			{id: model.VPNProviderTailscale, name: "Tailscale", executable: "tailscale", service: "tailscaled.service"},
 			{id: model.VPNProviderNetBird, name: "NetBird", executable: "netbird", service: "netbird.service"},
 		},
 		services:  services,
-		status:    status,
+		backend:   backend,
 		installed: installed,
 	}
 }
@@ -78,6 +90,109 @@ func (m *Manager) Snapshot(ctx context.Context) []model.VPNProviderState {
 		states = append(states, m.providerState(ctx, provider))
 	}
 	return states
+}
+
+// Action performs one explicit local lifecycle operation. It never installs a
+// provider package and never changes provider-side policy or account settings.
+func (m *Manager) Action(ctx context.Context, id model.VPNProviderID, action model.VPNAction) (model.VPNActionResult, error) {
+	provider, ok := m.provider(id)
+	if !ok {
+		return model.VPNActionResult{}, fmt.Errorf("unsupported private access provider %q", id)
+	}
+	if !m.installed.Installed(provider.executable) {
+		return model.VPNActionResult{}, fmt.Errorf("%s is not installed", provider.name)
+	}
+
+	switch action {
+	case model.VPNActionActivate:
+		if err := m.services.EnableAndStart(ctx, provider.service); err != nil {
+			return model.VPNActionResult{}, fmt.Errorf("activate %s service: %w", provider.name, err)
+		}
+		return m.connect(ctx, provider)
+
+	case model.VPNActionConnect:
+		state, err := m.services.UnitState(ctx, provider.service)
+		if err != nil {
+			return model.VPNActionResult{}, fmt.Errorf("read %s service state: %w", provider.name, err)
+		}
+		if state.active != "active" {
+			return model.VPNActionResult{}, fmt.Errorf("%s service is not running; activate it first", provider.name)
+		}
+		return m.connect(ctx, provider)
+
+	case model.VPNActionReconnect:
+		state, err := m.services.UnitState(ctx, provider.service)
+		if err != nil {
+			return model.VPNActionResult{}, fmt.Errorf("read %s service state: %w", provider.name, err)
+		}
+		if state.active != "active" {
+			return model.VPNActionResult{}, fmt.Errorf("%s service is not running; activate it first", provider.name)
+		}
+		_ = m.backend.Disconnect(ctx, provider.id)
+		return m.connect(ctx, provider)
+
+	case model.VPNActionDisconnect:
+		if err := m.backend.Disconnect(ctx, provider.id); err != nil {
+			return model.VPNActionResult{}, fmt.Errorf("disconnect %s: %w", provider.name, err)
+		}
+		return model.VPNActionResult{Message: provider.name + " disconnected. Service remains enabled."}, nil
+
+	case model.VPNActionDeactivate:
+		if err := m.services.StopAndDisable(ctx, provider.service); err != nil {
+			return model.VPNActionResult{}, fmt.Errorf("disable %s service: %w", provider.name, err)
+		}
+		return model.VPNActionResult{Message: provider.name + " service stopped and disabled."}, nil
+
+	default:
+		return model.VPNActionResult{}, fmt.Errorf("unsupported private access action %q", action)
+	}
+}
+
+// WaitAuthentication completes a previously-started browser/device-code login.
+// The caller supplies only the short-lived provider handle returned by Action.
+func (m *Manager) WaitAuthentication(ctx context.Context, id model.VPNProviderID, userCode string) (model.VPNActionResult, error) {
+	provider, ok := m.provider(id)
+	if !ok {
+		return model.VPNActionResult{}, fmt.Errorf("unsupported private access provider %q", id)
+	}
+	if !m.installed.Installed(provider.executable) {
+		return model.VPNActionResult{}, fmt.Errorf("%s is not installed", provider.name)
+	}
+
+	result, err := m.backend.WaitAuthentication(ctx, id, userCode)
+	if err != nil {
+		return model.VPNActionResult{}, err
+	}
+	return exportActionResult(result), nil
+}
+
+func (m *Manager) connect(ctx context.Context, provider providerSpec) (model.VPNActionResult, error) {
+	result, err := m.backend.Connect(ctx, provider.id)
+	if err != nil {
+		return model.VPNActionResult{}, fmt.Errorf("connect %s: %w", provider.name, err)
+	}
+	if result.message == "" {
+		result.message = provider.name + " connection requested."
+	}
+	return exportActionResult(result), nil
+}
+
+func exportActionResult(result providerActionResult) model.VPNActionResult {
+	return model.VPNActionResult{
+		Message:      result.message,
+		AuthURL:      result.authURL,
+		UserCode:     result.userCode,
+		AwaitingAuth: result.awaitingAuth,
+	}
+}
+
+func (m *Manager) provider(id model.VPNProviderID) (providerSpec, bool) {
+	for _, provider := range m.providers {
+		if provider.id == id {
+			return provider, true
+		}
+	}
+	return providerSpec{}, false
 }
 
 func (m *Manager) providerState(ctx context.Context, provider providerSpec) model.VPNProviderState {
@@ -107,7 +222,7 @@ func (m *Manager) providerState(ctx context.Context, provider providerSpec) mode
 		return state
 	}
 
-	providerState, available, err := m.status.Status(ctx, provider.id)
+	providerState, available, err := m.backend.Status(ctx, provider.id)
 	if errors.Is(err, errStatusUnavailable) || !available {
 		state.ConnectionState = "unavailable"
 		return state

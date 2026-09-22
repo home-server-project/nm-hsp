@@ -12,25 +12,62 @@ import (
 )
 
 type fakeServices struct {
-	states map[string]serviceState
-	errs   map[string]error
+	states       map[string]serviceState
+	errs         map[string]error
+	enabledStart []string
+	stopped      []string
 }
 
-func (f fakeServices) UnitState(_ context.Context, unit string) (serviceState, error) {
+func (f *fakeServices) UnitState(_ context.Context, unit string) (serviceState, error) {
 	if err := f.errs[unit]; err != nil {
 		return serviceState{}, err
 	}
 	return f.states[unit], nil
 }
 
-type fakeProviderStatus struct {
-	states    map[model.VPNProviderID]providerStatus
-	available map[model.VPNProviderID]bool
-	errs      map[model.VPNProviderID]error
+func (f *fakeServices) EnableAndStart(_ context.Context, unit string) error {
+	f.enabledStart = append(f.enabledStart, unit)
+	if f.states == nil {
+		f.states = map[string]serviceState{}
+	}
+	f.states[unit] = serviceState{enabled: true, active: "active"}
+	return nil
 }
 
-func (f fakeProviderStatus) Status(_ context.Context, id model.VPNProviderID) (providerStatus, bool, error) {
+func (f *fakeServices) StopAndDisable(_ context.Context, unit string) error {
+	f.stopped = append(f.stopped, unit)
+	if f.states == nil {
+		f.states = map[string]serviceState{}
+	}
+	f.states[unit] = serviceState{enabled: false, active: "inactive"}
+	return nil
+}
+
+type fakeProviderBackend struct {
+	states      map[model.VPNProviderID]providerStatus
+	available   map[model.VPNProviderID]bool
+	errs        map[model.VPNProviderID]error
+	connect     map[model.VPNProviderID]providerActionResult
+	connectErr  map[model.VPNProviderID]error
+	disconnects []model.VPNProviderID
+	wait        map[model.VPNProviderID]providerActionResult
+}
+
+func (f *fakeProviderBackend) Status(_ context.Context, id model.VPNProviderID) (providerStatus, bool, error) {
 	return f.states[id], f.available[id], f.errs[id]
+}
+
+func (f *fakeProviderBackend) Connect(_ context.Context, id model.VPNProviderID) (providerActionResult, error) {
+	return f.connect[id], f.connectErr[id]
+}
+
+func (f *fakeProviderBackend) Disconnect(_ context.Context, id model.VPNProviderID) error {
+	f.disconnects = append(f.disconnects, id)
+	return nil
+}
+
+func (f *fakeProviderBackend) WaitAuthentication(_ context.Context, id model.VPNProviderID, _ string) (providerActionResult, error) {
+	return f.wait[id], nil
 }
 
 type fakeInstalled map[string]bool
@@ -38,7 +75,7 @@ type fakeInstalled map[string]bool
 func (f fakeInstalled) Installed(name string) bool { return f[name] }
 
 func TestSnapshotAlwaysListsSupportedProviders(t *testing.T) {
-	manager := newManager(fakeServices{}, fakeProviderStatus{}, fakeInstalled{})
+	manager := newManager(&fakeServices{}, &fakeProviderBackend{}, fakeInstalled{})
 	states := manager.Snapshot(context.Background())
 
 	if len(states) != 2 {
@@ -54,8 +91,8 @@ func TestSnapshotAlwaysListsSupportedProviders(t *testing.T) {
 
 func TestTailscaleConnectedState(t *testing.T) {
 	manager := newManager(
-		fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: true, active: "active"}}},
-		fakeProviderStatus{
+		&fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: true, active: "active"}}},
+		&fakeProviderBackend{
 			states: map[model.VPNProviderID]providerStatus{
 				model.VPNProviderTailscale: {state: "Running", connected: true, addresses: []string{"100.64.0.10"}},
 			},
@@ -75,8 +112,8 @@ func TestTailscaleConnectedState(t *testing.T) {
 
 func TestInactiveServiceNeedsNoProviderStatus(t *testing.T) {
 	manager := newManager(
-		fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: false, active: "inactive"}}},
-		fakeProviderStatus{errs: map[model.VPNProviderID]error{model.VPNProviderTailscale: errors.New("must not be observed")}},
+		&fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: false, active: "inactive"}}},
+		&fakeProviderBackend{errs: map[model.VPNProviderID]error{model.VPNProviderTailscale: errors.New("must not be observed")}},
 		fakeInstalled{"tailscale": true},
 	)
 
@@ -86,29 +123,85 @@ func TestInactiveServiceNeedsNoProviderStatus(t *testing.T) {
 	}
 }
 
-func TestNetBirdRunningWithoutJSONSocketIsHonest(t *testing.T) {
-	manager := newManager(
-		fakeServices{states: map[string]serviceState{"netbird.service": {enabled: true, active: "active"}}},
-		fakeProviderStatus{
-			available: map[model.VPNProviderID]bool{model.VPNProviderNetBird: false},
-			errs:      map[model.VPNProviderID]error{model.VPNProviderNetBird: errStatusUnavailable},
+func TestActivateStartsServiceAndReturnsAuthenticationHandoff(t *testing.T) {
+	services := &fakeServices{states: map[string]serviceState{}}
+	backend := &fakeProviderBackend{
+		connect: map[model.VPNProviderID]providerActionResult{
+			model.VPNProviderTailscale: {
+				message:      "login",
+				authURL:      "https://login.example/",
+				awaitingAuth: true,
+			},
 		},
-		fakeInstalled{"netbird": true},
-	)
-
-	state := manager.Snapshot(context.Background())[1]
-	if !state.Installed || !state.ServiceRunning || state.ConnectionState != "unavailable" {
-		t.Fatalf("netbird state = %#v", state)
 	}
-	if state.Connected || len(state.Addresses) != 0 || state.StatusError != "" {
-		t.Fatalf("optional NetBird status absence should not be an error: %#v", state)
+	manager := newManager(services, backend, fakeInstalled{"tailscale": true})
+
+	result, err := manager.Action(context.Background(), model.VPNProviderTailscale, model.VPNActionActivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services.enabledStart) != 1 || services.enabledStart[0] != "tailscaled.service" {
+		t.Fatalf("started services = %#v", services.enabledStart)
+	}
+	if !result.AwaitingAuth || result.AuthURL == "" {
+		t.Fatalf("action result = %#v", result)
+	}
+}
+
+func TestDisconnectKeepsServiceEnabled(t *testing.T) {
+	services := &fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: true, active: "active"}}}
+	backend := &fakeProviderBackend{}
+	manager := newManager(services, backend, fakeInstalled{"tailscale": true})
+
+	result, err := manager.Action(context.Background(), model.VPNProviderTailscale, model.VPNActionDisconnect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.disconnects) != 1 {
+		t.Fatalf("disconnects = %#v", backend.disconnects)
+	}
+	if len(services.stopped) != 0 {
+		t.Fatal("disconnect must not stop or disable the service")
+	}
+	if result.Message == "" {
+		t.Fatal("disconnect result should explain service remains enabled")
+	}
+}
+
+func TestDeactivateStopsAndDisablesService(t *testing.T) {
+	services := &fakeServices{}
+	manager := newManager(services, &fakeProviderBackend{}, fakeInstalled{"netbird": true})
+
+	_, err := manager.Action(context.Background(), model.VPNProviderNetBird, model.VPNActionDeactivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services.stopped) != 1 || services.stopped[0] != "netbird.service" {
+		t.Fatalf("stopped services = %#v", services.stopped)
+	}
+}
+
+func TestWaitAuthenticationDoesNotExposeHandleInSnapshot(t *testing.T) {
+	backend := &fakeProviderBackend{
+		wait: map[model.VPNProviderID]providerActionResult{
+			model.VPNProviderNetBird: {message: "connected"},
+		},
+	}
+	manager := newManager(&fakeServices{}, backend, fakeInstalled{"netbird": true})
+
+	result, err := manager.WaitAuthentication(context.Background(), model.VPNProviderNetBird, "ABCD-EFGH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Message != "connected" || result.AuthURL != "" || result.UserCode != "" || result.AwaitingAuth {
+		t.Fatalf("wait result = %#v", result)
 	}
 }
 
 func TestProviderStatusFailureIsContained(t *testing.T) {
 	manager := newManager(
-		fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: true, active: "active"}}},
-		fakeProviderStatus{
+		&fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: true, active: "active"}}},
+		&fakeProviderBackend{
 			available: map[model.VPNProviderID]bool{model.VPNProviderTailscale: true},
 			errs:      map[model.VPNProviderID]error{model.VPNProviderTailscale: errors.New("bad response")},
 		},
@@ -126,8 +219,8 @@ func TestProviderStatusFailureIsContained(t *testing.T) {
 
 func TestServiceFailureIsContained(t *testing.T) {
 	manager := newManager(
-		fakeServices{errs: map[string]error{"tailscaled.service": errors.New("dbus unavailable")}},
-		fakeProviderStatus{},
+		&fakeServices{errs: map[string]error{"tailscaled.service": errors.New("dbus unavailable")}},
+		&fakeProviderBackend{},
 		fakeInstalled{"tailscale": true},
 	)
 
@@ -151,23 +244,13 @@ func TestNormalizeTailscaleStatus(t *testing.T) {
 	}
 }
 
-func TestNormalizeNetBirdStatus(t *testing.T) {
-	status := netBirdGatewayStatus{Status: "Connected"}
-	status.FullStatus = &struct {
-		LocalPeerState *struct {
-			IP      string `json:"IP"`
-			IPLower string `json:"ip"`
-			IPv6    string `json:"ipv6"`
-		} `json:"localPeerState"`
-	}{
-		LocalPeerState: &struct {
-			IP      string `json:"IP"`
-			IPLower string `json:"ip"`
-			IPv6    string `json:"ipv6"`
-		}{IP: "100.119.62.6/16", IPv6: "fd00::6/64"},
-	}
-
-	state := normalizeNetBirdStatus(status)
+func TestNormalizeNetBirdRPCStatus(t *testing.T) {
+	state := normalizeNetBirdRPCStatus(nbStatusResponse{
+		Status: "Connected",
+		FullStatus: &nbFullStatus{
+			LocalPeerState: &nbLocalPeerState{IP: "100.119.62.6/16", IPv6: "fd00::6/64"},
+		},
+	})
 	if !state.connected || state.state != "Connected" {
 		t.Fatalf("netbird provider status = %#v", state)
 	}

@@ -7,6 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.8
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/godbus/dbus/v5 v5.2.2
+	google.golang.org/grpc v1.80.0
 )
 
 require (

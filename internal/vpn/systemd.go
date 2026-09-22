@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -59,6 +60,64 @@ func (systemdReader) UnitState(ctx context.Context, unit string) (serviceState, 
 		enabled: unitFileState == "enabled",
 		active:  active,
 	}, nil
+}
+
+func (r systemdReader) EnableAndStart(ctx context.Context, unit string) error {
+	conn, err := dbus.ConnectSystemBus()
+	if err != nil {
+		return fmt.Errorf("connect system bus: %w", err)
+	}
+	defer conn.Close()
+
+	manager := conn.Object(systemdBusName, systemdManagerPath)
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".EnableUnitFiles", 0, []string{unit}, false, true); call.Err != nil {
+		return fmt.Errorf("enable unit: %w", call.Err)
+	}
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".StartUnit", 0, unit, "replace"); call.Err != nil {
+		return fmt.Errorf("start unit: %w", call.Err)
+	}
+	return r.waitForActiveState(ctx, unit, true)
+}
+
+func (r systemdReader) StopAndDisable(ctx context.Context, unit string) error {
+	conn, err := dbus.ConnectSystemBus()
+	if err != nil {
+		return fmt.Errorf("connect system bus: %w", err)
+	}
+	defer conn.Close()
+
+	manager := conn.Object(systemdBusName, systemdManagerPath)
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".StopUnit", 0, unit, "replace"); call.Err != nil {
+		return fmt.Errorf("stop unit: %w", call.Err)
+	}
+	if err := r.waitForActiveState(ctx, unit, false); err != nil {
+		return err
+	}
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".DisableUnitFiles", 0, []string{unit}, false); call.Err != nil {
+		return fmt.Errorf("disable unit: %w", call.Err)
+	}
+	return nil
+}
+
+func (r systemdReader) waitForActiveState(ctx context.Context, unit string, wantActive bool) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		state, err := r.UnitState(ctx, unit)
+		if err == nil && (state.active == "active") == wantActive {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			if wantActive {
+				return fmt.Errorf("service did not become active: %w", ctx.Err())
+			}
+			return fmt.Errorf("service did not stop: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func isNoSuchSystemdUnit(err error) bool {
