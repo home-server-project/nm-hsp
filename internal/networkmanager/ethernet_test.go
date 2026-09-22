@@ -209,3 +209,51 @@ func TestNewUUIDIsVersion4Shape(t *testing.T) {
 		t.Fatalf("newUUID() variant nibble = %q", uuid[19])
 	}
 }
+
+func TestSettingsFromCallPreservesLegacyVariantSignatures(t *testing.T) {
+	legacyAddresses := dbus.MakeVariantWithSignature(
+		[]any{[]any{[]byte{0x20, 0x01}, uint32(64), []byte{}}},
+		dbus.ParseSignatureMust("a(ayuay)"),
+	)
+	legacyRoutes := dbus.MakeVariantWithSignature(
+		[]any{[]any{[]byte{}, uint32(0), []byte{}, uint32(0)}},
+		dbus.ParseSignatureMust("a(ayuayu)"),
+	)
+	settings := map[string]map[string]dbus.Variant{
+		"ipv6": {
+			"addresses": legacyAddresses,
+			"routes":    legacyRoutes,
+		},
+	}
+	call := &dbus.Call{Body: []any{settings}}
+
+	got, err := settingsFromCall(call)
+	if err != nil {
+		t.Fatalf("settingsFromCall() error = %v", err)
+	}
+	if sig := got["ipv6"]["addresses"].Signature().String(); sig != "a(ayuay)" {
+		t.Fatalf("addresses signature = %q", sig)
+	}
+	if sig := got["ipv6"]["routes"].Signature().String(); sig != "a(ayuayu)" {
+		t.Fatalf("routes signature = %q", sig)
+	}
+}
+
+func TestPatchEthernetSettingsPreservesLegacyRouteSignature(t *testing.T) {
+	settings := ethernetSettingsFixture()
+	settings["ipv6"]["routes"] = dbus.MakeVariantWithSignature(
+		[]any{[]any{[]byte{}, uint32(0), []byte{}, uint32(0)}},
+		dbus.ParseSignatureMust("a(ayuayu)"),
+	)
+	profile := model.EthernetProfile{
+		Autoconnect: true,
+		IPv4:        model.IPProfileConfig{Method: model.IPMethodAuto},
+		IPv6:        model.IPProfileConfig{Method: model.IPMethodAuto},
+	}
+
+	patchEthernetSettings(settings, profile)
+
+	if sig := settings["ipv6"]["routes"].Signature().String(); sig != "a(ayuayu)" {
+		t.Fatalf("legacy IPv6 routes signature changed to %q", sig)
+	}
+}

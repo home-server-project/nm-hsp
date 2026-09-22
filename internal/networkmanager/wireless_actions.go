@@ -102,13 +102,9 @@ func (c *Client) UpdateWiFiProfileMetadata(ctx context.Context, update model.WiF
 	if err != nil {
 		return err
 	}
-	connection := settings["connection"]
-	if stringValue(connection, "type") != "802-11-wireless" {
-		return fmt.Errorf("profile is not a Wi-Fi connection")
+	if err := patchWiFiProfileMetadata(settings, update); err != nil {
+		return err
 	}
-
-	connection["autoconnect"] = dbus.MakeVariant(update.Autoconnect)
-	connection["autoconnect-priority"] = dbus.MakeVariant(update.AutoconnectPriority)
 
 	var result map[string]dbus.Variant
 	if err := c.call(
@@ -121,6 +117,19 @@ func (c *Client) UpdateWiFiProfileMetadata(ctx context.Context, update model.WiF
 	).Store(&result); err != nil {
 		return fmt.Errorf("save Wi-Fi profile metadata: %w", err)
 	}
+	return nil
+}
+
+func patchWiFiProfileMetadata(
+	settings map[string]map[string]dbus.Variant,
+	update model.WiFiProfileUpdate,
+) error {
+	connection := settings["connection"]
+	if stringValue(connection, "type") != "802-11-wireless" {
+		return fmt.Errorf("profile is not a Wi-Fi connection")
+	}
+	connection["autoconnect"] = dbus.MakeVariant(update.Autoconnect)
+	connection["autoconnect-priority"] = dbus.MakeVariant(update.AutoconnectPriority)
 	return nil
 }
 

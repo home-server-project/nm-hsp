@@ -111,9 +111,9 @@ func (c *Client) readProfiles(ctx context.Context) ([]model.ConnectionProfile, m
 	byPath := make(map[dbus.ObjectPath]model.ConnectionProfile, len(paths))
 
 	for _, path := range paths {
-		var settings map[string]map[string]dbus.Variant
-		if err := c.call(ctx, path, connectionInterface+".GetSettings").Store(&settings); err != nil {
-			return nil, nil, fmt.Errorf("read connection profile %s: %w", path, err)
+		settings, err := c.connectionSettings(ctx, path)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		connection := settings["connection"]

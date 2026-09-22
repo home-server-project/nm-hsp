@@ -144,9 +144,27 @@ func (c *Client) UpdateEthernetProfile(ctx context.Context, profile model.Ethern
 }
 
 func (c *Client) connectionSettings(ctx context.Context, path dbus.ObjectPath) (map[string]map[string]dbus.Variant, error) {
-	var settings map[string]map[string]dbus.Variant
-	if err := c.call(ctx, path, connectionInterface+".GetSettings").Store(&settings); err != nil {
+	call := c.call(ctx, path, connectionInterface+".GetSettings")
+	settings, err := settingsFromCall(call)
+	if err != nil {
 		return nil, fmt.Errorf("read connection profile %s: %w", path, err)
+	}
+	return settings, nil
+}
+
+func settingsFromCall(call *dbus.Call) (map[string]map[string]dbus.Variant, error) {
+	if call == nil {
+		return nil, fmt.Errorf("empty D-Bus call")
+	}
+	if call.Err != nil {
+		return nil, call.Err
+	}
+	if len(call.Body) != 1 {
+		return nil, fmt.Errorf("unexpected GetSettings reply body length %d", len(call.Body))
+	}
+	settings, ok := call.Body[0].(map[string]map[string]dbus.Variant)
+	if !ok {
+		return nil, fmt.Errorf("unexpected GetSettings reply type %T", call.Body[0])
 	}
 	return settings, nil
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/godbus/dbus/v5"
 	"github.com/home-server-project/nm-hsp/internal/model"
 	"github.com/home-server-project/nm-hsp/internal/security"
 )
@@ -100,5 +101,44 @@ func TestScrubWiFiSettingsSecretDropsTemporaryPSK(t *testing.T) {
 	scrubWiFiSettingsSecret(settings)
 	if _, ok := wirelessSecurity["psk"]; ok {
 		t.Fatal("temporary D-Bus settings must not retain the PSK after use")
+	}
+}
+
+func TestPatchWiFiProfileMetadataPreservesLegacyIPv6Signatures(t *testing.T) {
+	settings := map[string]map[string]dbus.Variant{
+		"connection": {
+			"type":         dbus.MakeVariant("802-11-wireless"),
+			"autoconnect":  dbus.MakeVariant(true),
+		},
+		"ipv6": {
+			"addresses": dbus.MakeVariantWithSignature(
+				[]any{[]any{[]byte{0x20, 0x01}, uint32(64), []byte{}}},
+				dbus.ParseSignatureMust("a(ayuay)"),
+			),
+			"routes": dbus.MakeVariantWithSignature(
+				[]any{[]any{[]byte{}, uint32(0), []byte{}, uint32(0)}},
+				dbus.ParseSignatureMust("a(ayuayu)"),
+			),
+		},
+	}
+
+	err := patchWiFiProfileMetadata(settings, model.WiFiProfileUpdate{
+		Autoconnect:         false,
+		AutoconnectPriority: 7,
+	})
+	if err != nil {
+		t.Fatalf("patchWiFiProfileMetadata() error = %v", err)
+	}
+	if sig := settings["ipv6"]["addresses"].Signature().String(); sig != "a(ayuay)" {
+		t.Fatalf("legacy IPv6 addresses signature changed to %q", sig)
+	}
+	if sig := settings["ipv6"]["routes"].Signature().String(); sig != "a(ayuayu)" {
+		t.Fatalf("legacy IPv6 routes signature changed to %q", sig)
+	}
+	if boolValue(settings["connection"], "autoconnect") {
+		t.Fatal("autoconnect should be false")
+	}
+	if got := int32Value(settings["connection"], "autoconnect-priority"); got != 7 {
+		t.Fatalf("priority = %d, want 7", got)
 	}
 }
