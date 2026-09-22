@@ -417,11 +417,51 @@ func TestDashboardRendersTroubleshootCardAndProjectBranding(t *testing.T) {
 		"Ethernet ",
 		"Wi-Fi ",
 		"connected",
+		"Private Access",
 		"Troubleshoot",
 		"t troubleshoot",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("dashboard missing %q", want)
+		}
+	}
+}
+
+func TestEnterOnPrivateAccessCardOpensScreen(t *testing.T) {
+	snapshot := sampleSnapshot()
+	snapshot.VPN = []model.VPNProviderState{
+		{
+			ID:              model.VPNProviderTailscale,
+			Name:            "Tailscale",
+			Installed:       true,
+			ServiceEnabled:  true,
+			ServiceState:    "active",
+			ServiceRunning:  true,
+			ConnectionState: "Running",
+			Connected:       true,
+			Addresses:       []string{"100.64.0.10"},
+		},
+		{
+			ID:        model.VPNProviderNetBird,
+			Name:      "NetBird",
+			Installed: false,
+		},
+	}
+	source := &fakeSource{snapshot: snapshot}
+	m := New(source)
+	m.snapshot = snapshot
+	m.loading = false
+	m.cursor = len(m.visibleDevices())
+
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = updated.(Model)
+	if cmd != nil || m.vpn == nil {
+		t.Fatal("Enter on Private Access card should open the read-only provider screen")
+	}
+	output := m.render()
+	for _, want := range []string{"Private Access", "Tailscale", "100.64.0.10", "NetBird"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("private access view missing %q", want)
 		}
 	}
 }
@@ -432,7 +472,7 @@ func TestEnterOnTroubleshootCardOpensDiagnostics(t *testing.T) {
 	m := New(source)
 	m.snapshot = snapshot
 	m.loading = false
-	m.cursor = len(m.visibleDevices())
+	m.cursor = len(m.visibleDevices()) + 1
 
 	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m = updated.(Model)

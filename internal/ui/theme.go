@@ -40,6 +40,6 @@ var (
 				BorderForeground(colorAccent)
 
 	helpStyle = lipgloss.NewStyle().
-			Foreground(colorMuted).
+			Bold(true).
 			Padding(0, 1)
 )
