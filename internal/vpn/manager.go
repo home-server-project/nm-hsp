@@ -16,10 +16,10 @@ import (
 // Step 1 is intentionally read-only: it detects provider presence, systemd
 // lifecycle state, and provider status where a supported local API is present.
 type Manager struct {
-	providers  []providerSpec
-	services   serviceStateReader
-	status     providerStatusReader
-	installed  executableDetector
+	providers []providerSpec
+	services  serviceStateReader
+	status    providerStatusReader
+	installed executableDetector
 }
 
 type providerSpec struct {
