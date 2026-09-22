@@ -2,11 +2,11 @@
 
 NetworkManager-HSP (`nm-hsp`) is a first-party Home Server Project terminal application for friendly NetworkManager configuration on headless and appliance-style Linux systems.
 
-The project is intended to provide a modern, keyboard-driven interface for ordinary Ethernet and Wi-Fi configuration while leaving the native NetworkManager `nmtui` available as the advanced fallback.
+The project is intended to provide a modern-friendly, keyboard-driven interface for ordinary Ethernet and Wi-Fi configuration.
 
 ## Project status
 
-Early development. Checkpoint 7 is implemented on the `testing` branch: `nm-hsp` now includes interactive Ethernet and Wi-Fi management, hardened secret handling, and a friendly network diagnostics and guarded repair workflow.
+Early development. `nm-hsp` includes interactive Ethernet and Wi-Fi management, hardened secret handling, and a friendly network diagnostics and guarded repair workflow.
 
 ## Goals
 
@@ -18,17 +18,16 @@ Early development. Checkpoint 7 is implemented on the `testing` branch: `nm-hsp`
 - Safe diagnostics and repair for common NetworkManager profile and autoconnect failures.
 - NetworkManager D-Bus integration as the primary backend.
 - Secret handling that avoids passwords in process arguments, logs, debug output, or shell history.
-- Native `nmtui` remains available separately for uncommon or highly advanced NetworkManager configuration.
 
 ## Repository role
 
 This repository owns the application source and releases.
 
-A future RPM pipeline belongs in `home-server-project/home-server-packages`. Product repositories such as JustVoxel will consume the packaged application and may expose it through commands such as `mjust net`.
+A future RPM pipeline belongs in `home-server-project/home-server-packages`. Product repositories such as [JustVoxel](https://github.com/home-server-project/justvoxel) will consume the packaged application.
 
 ## Current backend contract
 
-Checkpoint 2 uses NetworkManager's system D-Bus API directly. It currently reads:
+nm-hsp uses NetworkManager's system D-Bus API directly. It currently reads:
 
 - NetworkManager version, global state, connectivity, networking enabled, and Wi-Fi enabled state.
 - Network devices, interface names, type, state, managed state, hardware address, and MTU.
@@ -40,7 +39,7 @@ Checkpoint 2 uses NetworkManager's system D-Bus API directly. It currently reads
 
 The backend reads and updates NetworkManager directly over D-Bus. It can persist supported Ethernet settings, scan Wi-Fi networks, toggle the Wi-Fi radio, activate/deactivate saved Wi-Fi profiles, create supported Wi-Fi profiles, update autoconnect metadata, and delete saved Wi-Fi profiles. It does not call `GetSecrets`.
 
-For development and VM verification, `nm-hsp --snapshot` prints this normalized read-only state as JSON.
+For development and verification, `nm-hsp --snapshot` prints this normalized read-only state as JSON.
 
 ## Terminal dashboard
 
@@ -67,7 +66,9 @@ Controls:
 
 ## Interactive Ethernet settings
 
-The Checkpoint 4 Ethernet form supports:
+Ethernet management supports saved profiles, DHCP and manual IPv4/IPv6 configuration, DNS, gateway, autoconnect, MTU, connection activation, disconnection, and profile creation and editing.
+
+The Ethernet settings form supports:
 
 - IPv4 Automatic / Manual / Disabled.
 - IPv4 address/prefix, gateway, and DNS.
@@ -81,12 +82,10 @@ The form uses standard single-line TUI input fields. Tab, Up/Down, and Enter mov
 
 For an existing Ethernet connection, nm-hsp re-reads the full non-secret NetworkManager profile immediately before saving and patches only the supported fields so unrelated profile settings are preserved. If the device has no saved Ethernet profile, nm-hsp creates a new persistent DHCP-style profile bound to that interface.
 
-Checkpoint 4 saves Ethernet profiles to disk only. It deliberately does not activate, deactivate, reconnect, or reapply the live Ethernet connection.
-
 
 ## Interactive Wi-Fi manager
 
-The Checkpoint 5 Wi-Fi manager supports:
+The Wi-Fi manager supports:
 
 - Wi-Fi radio On / Off.
 - Rescan of visible networks.
@@ -107,7 +106,7 @@ Wi-Fi connection creation and activation use NetworkManager D-Bus directly. Pass
 
 ## Network health & repair
 
-Press `t` from the dashboard to open the Checkpoint 7 diagnostics screen.
+Press `t` from the dashboard to open the diagnostics screen.
 
 The health view follows the network chain in normal-user language instead of requiring users to interpret NetworkManager internals. Depending on available hardware and state, it checks:
 
@@ -163,21 +162,6 @@ See `docs/diagnostics.md` for the repair safety model and scenario coverage.
 - `internal/diagnostics` — diagnostic decision engine and bounded active probes
 - `docs/security.md` — credential-handling guarantees, limitations, and regression contracts
 - `docs/diagnostics.md` — diagnostics chain, repair boundaries, and safety model
-
-## Development workflow
-
-Development happens on `testing` in small reviewed checkpoints. `main` is reserved for reviewed/stable changes.
-
-Current checkpoint sequence:
-
-1. Repository foundation
-2. NetworkManager backend and device discovery
-3. Read-only modern TUI
-4. Interactive Ethernet settings
-5. Wi-Fi manager
-6. Secret-handling audit
-7. Diagnostics and repair
-8. Release readiness and VM validation
 
 ## Build
 
