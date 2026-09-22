@@ -27,8 +27,9 @@ type diagnosticsRefreshErrMsg struct {
 }
 
 type diagnosticsRepairMsg struct {
-	label string
-	err   error
+	label  string
+	action model.RepairAction
+	err    error
 }
 
 type diagnosticsScreen struct {
@@ -77,7 +78,7 @@ func (s *diagnosticsScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 		s.notice = msg.label + " completed."
 		s.err = nil
 		s.loading = true
-		return false, s.refresh()
+		return false, s.refreshAfterRepair(msg.action)
 
 	case tea.KeyPressMsg:
 		if s.applying {
@@ -158,10 +159,62 @@ func (s *diagnosticsScreen) apply(action model.RepairAction) tea.Cmd {
 
 		err := s.source.ApplyRepair(ctx, action)
 		return diagnosticsRepairMsg{
-			label: action.Label,
-			err:   err,
+			label:  action.Label,
+			action: action,
+			err:    err,
 		}
 	}
+}
+
+func (s *diagnosticsScreen) refreshAfterRepair(action model.RepairAction) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+
+		deadline := time.Now().Add(4 * time.Second)
+		for {
+			snapshot, err := s.source.Snapshot(ctx)
+			if err != nil {
+				return diagnosticsRefreshErrMsg{err: err}
+			}
+			if !diagnosticsNeedsSettle(action, snapshot) || time.Now().After(deadline) {
+				probe := model.DiagnosticProbe{}
+				if shouldProbeDNS(snapshot) {
+					probeCtx, probeCancel := context.WithTimeout(ctx, 3*time.Second)
+					probe = diag.ProbeDNS(probeCtx)
+					probeCancel()
+				}
+				return diagnosticsRefreshMsg{report: diag.Analyze(snapshot, probe)}
+			}
+			select {
+			case <-ctx.Done():
+				return diagnosticsRefreshErrMsg{err: ctx.Err()}
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+	}
+}
+
+func diagnosticsNeedsSettle(action model.RepairAction, snapshot model.Snapshot) bool {
+	if action.Kind != model.RepairActivateProfile && action.Kind != model.RepairCreateDHCPProfile {
+		return false
+	}
+	for _, device := range snapshot.Devices {
+		if action.DevicePath != "" && device.ObjectPath != action.DevicePath {
+			continue
+		}
+		if action.InterfaceName != "" && device.Interface != action.InterfaceName {
+			continue
+		}
+		if device.ActiveConnection == nil {
+			return true
+		}
+		if device.ActiveConnection.IPv4Method == "auto" && len(device.IPv4.Addresses) == 0 {
+			return true
+		}
+		return false
+	}
+	return true
 }
 
 func (s *diagnosticsScreen) selectedCheck() *model.DiagnosticCheck {

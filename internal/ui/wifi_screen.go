@@ -709,7 +709,7 @@ func (s *wifiScreen) renderNearbyNetworks(width, height int) string {
 
 	s.renderWiFiMessages(&out)
 	out.WriteString("\n")
-	out.WriteString(helpStyle.Render("↑/↓ navigate   Enter select   r rescan   h hidden network   w radio   Esc back"))
+	out.WriteString(helpStyle.Render("↑/↓ navigate   Enter select   r rescan   h hidden network   w radio (wifi) ON/OFF   Esc back"))
 	return out.String()
 }
 

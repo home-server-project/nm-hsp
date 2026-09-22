@@ -19,6 +19,8 @@ type NetworkSource interface {
 	wifiSource
 	EthernetProfile(context.Context, string, string) (model.EthernetProfile, error)
 	SaveEthernetProfile(context.Context, model.EthernetProfile) (model.EthernetProfile, error)
+	ActivateEthernetProfile(context.Context, string, string) error
+	DisconnectEthernet(context.Context, string) error
 	ApplyRepair(context.Context, model.RepairAction) error
 }
 
@@ -57,8 +59,9 @@ type Model struct {
 	loading     bool
 	formLoading bool
 	formSaving  bool
-	form        *ethernetForm
-	wifi        *wifiScreen
+	form         *ethernetForm
+	ethernetMenu *ethernetActionMenu
+	wifi         *wifiScreen
 	diagnostics *diagnosticsScreen
 	err         error
 	notice      string
@@ -93,6 +96,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loading = true
 			m.err = nil
 			return m, m.loadSnapshot()
+		}
+		return m, cmd
+	}
+	if m.ethernetMenu != nil {
+		closeMenu, cmd := m.updateEthernetMenu(msg)
+		if closeMenu {
+			m.ethernetMenu = nil
 		}
 		return m, cmd
 	}
@@ -189,7 +199,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "down", "j":
 			m.notice = ""
-			if m.cursor+1 < len(m.visibleDevices()) {
+			if m.cursor+1 < m.dashboardItemCount() {
 				m.cursor++
 				m.expanded = false
 			}
@@ -197,13 +207,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.notice = ""
 			devices := m.visibleDevices()
-			if len(devices) == 0 {
+			if m.cursor == len(devices) {
+				m.diagnostics = newDiagnosticsScreen(m.source)
+				return m, m.diagnostics.init()
+			}
+			if len(devices) == 0 || m.cursor >= len(devices) {
 				break
 			}
 
 			device := devices[m.cursor]
 			if device.Kind == model.DeviceKindEthernet {
-				return m, m.openEthernetForm(device)
+				m.ethernetMenu = newEthernetActionMenu(device, m.preferredEthernetProfile(device))
+				return m, nil
 			}
 			if device.Kind == model.DeviceKindWiFi {
 				m.wifi = newWiFiScreen(m.source, device, m.snapshot)
@@ -218,7 +233,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "d":
 			m.notice = ""
-			if len(m.visibleDevices()) > 0 {
+			if m.cursor < len(m.visibleDevices()) {
 				m.expanded = !m.expanded
 			}
 
@@ -351,7 +366,7 @@ func (m Model) preferredEthernetProfile(device model.Device) *model.ConnectionPr
 }
 
 func (m *Model) clampCursor() {
-	count := len(m.visibleDevices())
+	count := m.dashboardItemCount()
 	if count == 0 {
 		m.cursor = 0
 		m.expanded = false
@@ -361,6 +376,10 @@ func (m *Model) clampCursor() {
 		m.cursor = count - 1
 		m.expanded = false
 	}
+}
+
+func (m Model) dashboardItemCount() int {
+	return len(m.visibleDevices()) + 1
 }
 
 func (m Model) visibleDevices() []model.Device {
@@ -396,6 +415,9 @@ func (m Model) render() string {
 	if m.wifi != nil {
 		return m.wifi.render(width-2, m.height)
 	}
+	if m.ethernetMenu != nil {
+		return m.renderEthernetMenu(width - 2)
+	}
 	if m.form != nil {
 		return m.form.render(width-2, m.formSaving)
 	}
@@ -404,11 +426,16 @@ func (m Model) render() string {
 	var out strings.Builder
 
 	header := titleStyle.Render("NetworkManager-HSP") + "  " +
-		mutedStyle.Render("friendly network manager")
+		mutedStyle.Render("friendly network manager from Home Server Project")
 	out.WriteString(lipgloss.NewStyle().
 		Width(contentWidth).
 		Padding(0, 1).
 		Render(header))
+	out.WriteString("\n")
+	out.WriteString(lipgloss.NewStyle().
+		Width(contentWidth).
+		Padding(0, 1).
+		Render(mutedStyle.Render("https://github.com/home-server-project")))
 	out.WriteString("\n")
 	out.WriteString(m.renderStatus(contentWidth))
 
@@ -449,23 +476,24 @@ func (m Model) renderStatus(width int) string {
 		status = errorStyle.Render("No connectivity")
 	}
 
-	networking := "Networking off"
+	networkingState := warningStyle.Render("OFF")
 	if m.snapshot.NetworkingEnabled {
-		networking = "Networking on"
+		networkingState = goodStyle.Render("ON")
 	}
-
-	wireless := "Wi-Fi off"
+	wirelessState := warningStyle.Render("OFF")
 	if m.snapshot.WirelessEnabled {
-		wireless = "Wi-Fi on"
+		wirelessState = goodStyle.Render("ON")
 	}
 
-	version := "NetworkManager " + emptyFallback(m.snapshot.Version, "unknown")
+	networking := mutedStyle.Render("Networking ") + networkingState
+	wireless := mutedStyle.Render("Wi-Fi ") + wirelessState
+	version := mutedStyle.Render("NetworkManager " + emptyFallback(m.snapshot.Version, "unknown"))
 	line := fmt.Sprintf(
 		"%s   %s   %s   %s",
 		status,
-		mutedStyle.Render(networking),
-		mutedStyle.Render(wireless),
-		mutedStyle.Render(version),
+		networking,
+		wireless,
+		version,
 	)
 
 	return cardStyle.
@@ -475,18 +503,35 @@ func (m Model) renderStatus(width int) string {
 
 func (m Model) renderDevices(width int) string {
 	devices := m.visibleDevices()
+	parts := make([]string, 0, len(devices)+1)
 	if len(devices) == 0 {
-		return "\n" + cardStyle.
+		parts = append(parts, cardStyle.
 			Width(cardContentWidth(width)).
 			Padding(1, 2).
-			Render("No Ethernet or Wi-Fi devices detected.")
+			Render("No Ethernet or Wi-Fi devices detected."))
+	} else {
+		for index, device := range devices {
+			parts = append(parts, m.renderDevice(width, device, index == m.cursor))
+		}
 	}
-
-	parts := make([]string, 0, len(devices))
-	for index, device := range devices {
-		parts = append(parts, m.renderDevice(width, device, index == m.cursor))
-	}
+	parts = append(parts, m.renderTroubleshootCard(width, m.cursor == len(devices)))
 	return "\n" + strings.Join(parts, "\n")
+}
+
+func (m Model) renderTroubleshootCard(width int, selected bool) string {
+	style := cardStyle
+	marker := "  "
+	if selected {
+		style = selectedCardStyle
+		marker = "› "
+	}
+	body := fmt.Sprintf(
+		"%s%s\n    %s",
+		marker,
+		titleStyle.Render("Troubleshoot"),
+		mutedStyle.Render("Network health, diagnostics, and safe repair"),
+	)
+	return style.Width(cardContentWidth(width)).Render(body)
 }
 
 func (m Model) renderDevice(width int, device model.Device, selected bool) string {

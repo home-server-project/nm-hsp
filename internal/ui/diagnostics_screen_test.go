@@ -156,3 +156,29 @@ func TestShouldProbeDNSOnlyWithAddressAndDNS(t *testing.T) {
 		t.Fatal("DNS probe should not run without configured DNS servers")
 	}
 }
+
+func TestDiagnosticsSettleWaitsForDHCPAddress(t *testing.T) {
+	action := model.RepairAction{
+		Kind:          model.RepairActivateProfile,
+		DevicePath:    "/device/1",
+		InterfaceName: "enp2s0",
+	}
+	snapshot := model.Snapshot{
+		Devices: []model.Device{
+			{
+				ObjectPath: "/device/1",
+				Interface:  "enp2s0",
+				ActiveConnection: &model.ConnectionProfile{
+					IPv4Method: "auto",
+				},
+			},
+		},
+	}
+	if !diagnosticsNeedsSettle(action, snapshot) {
+		t.Fatal("activation should settle while DHCP has no IPv4 address")
+	}
+	snapshot.Devices[0].IPv4.Addresses = []model.IPAddress{{Address: "192.168.0.50", Prefix: 24}}
+	if diagnosticsNeedsSettle(action, snapshot) {
+		t.Fatal("settle should finish once IPv4 is present")
+	}
+}

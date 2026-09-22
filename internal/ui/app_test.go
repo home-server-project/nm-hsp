@@ -22,6 +22,8 @@ type fakeSource struct {
 	wifiRequest     model.WiFiConnectRequest
 	repairErr       error
 	appliedRepair   *model.RepairAction
+	ethernetActivated bool
+	ethernetDisconnected bool
 }
 
 func (f *fakeSource) Snapshot(context.Context) (model.Snapshot, error) {
@@ -78,6 +80,16 @@ func (f *fakeSource) ConnectWiFi(_ context.Context, request model.WiFiConnectReq
 		return "", "", f.wifiConnectErr
 	}
 	return "/profile", "/active", nil
+}
+
+func (f *fakeSource) ActivateEthernetProfile(context.Context, string, string) error {
+	f.ethernetActivated = true
+	return nil
+}
+
+func (f *fakeSource) DisconnectEthernet(context.Context, string) error {
+	f.ethernetDisconnected = true
+	return nil
 }
 
 func (f *fakeSource) ApplyRepair(_ context.Context, action model.RepairAction) error {
@@ -370,5 +382,42 @@ func TestTroubleshootKeyOpensDiagnostics(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("diagnostics screen should start a fresh diagnostic run")
+	}
+}
+
+func TestDashboardRendersTroubleshootCardAndProjectBranding(t *testing.T) {
+	snapshot := sampleSnapshot()
+	m := New(&fakeSource{snapshot: snapshot})
+	m.snapshot = snapshot
+	m.loading = false
+	m.width = 100
+
+	output := m.render()
+	for _, want := range []string{
+		"friendly network manager from Home Server Project",
+		"https://github.com/home-server-project",
+		"Networking ON",
+		"Wi-Fi ON",
+		"Troubleshoot",
+		"t troubleshoot",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("dashboard missing %q", want)
+		}
+	}
+}
+
+func TestEnterOnTroubleshootCardOpensDiagnostics(t *testing.T) {
+	snapshot := sampleSnapshot()
+	source := &fakeSource{snapshot: snapshot}
+	m := New(source)
+	m.snapshot = snapshot
+	m.loading = false
+	m.cursor = len(m.visibleDevices())
+
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = updated.(Model)
+	if m.diagnostics == nil || cmd == nil {
+		t.Fatal("Enter on Troubleshoot card should open diagnostics")
 	}
 }
