@@ -243,7 +243,7 @@ func TestCompactRenderKeepsEssentialFields(t *testing.T) {
 	}
 }
 
-func TestEnterOnEthernetLoadsInteractiveForm(t *testing.T) {
+func TestEnterOnEthernetOpensActionsThenEditLoadsForm(t *testing.T) {
 	snapshot := sampleSnapshot()
 	source := &fakeSource{
 		snapshot: snapshot,
@@ -265,8 +265,18 @@ func TestEnterOnEthernetLoadsInteractiveForm(t *testing.T) {
 
 	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m = updated.(Model)
+	if cmd != nil || m.ethernetMenu == nil {
+		t.Fatal("Enter on Ethernet should open the action menu")
+	}
+	if m.ethernetMenu.options[0].label != "Disconnect" {
+		t.Fatalf("connected Ethernet first action = %q, want Disconnect", m.ethernetMenu.options[0].label)
+	}
+
+	m.ethernetMenu.cursor = 1
+	updated, cmd = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = updated.(Model)
 	if !m.formLoading || cmd == nil {
-		t.Fatal("Enter on Ethernet should load its saved profile")
+		t.Fatal("Edit settings should load the saved Ethernet profile")
 	}
 
 	updated, _ = m.Update(cmd())
@@ -279,7 +289,7 @@ func TestEnterOnEthernetLoadsInteractiveForm(t *testing.T) {
 	}
 }
 
-func TestEnterOnEthernetWithoutProfileStartsDHCPForm(t *testing.T) {
+func TestEnterOnEthernetWithoutProfileOffersConfigureThenDHCPForm(t *testing.T) {
 	snapshot := sampleSnapshot()
 	snapshot.Profiles = nil
 	snapshot.Devices[0].ActiveConnection = nil
@@ -291,12 +301,20 @@ func TestEnterOnEthernetWithoutProfileStartsDHCPForm(t *testing.T) {
 
 	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m = updated.(Model)
+	if cmd != nil || m.ethernetMenu == nil {
+		t.Fatal("new Ethernet device should open the action menu")
+	}
+	if m.ethernetMenu.options[0].label != "Configure Ethernet" {
+		t.Fatalf("first action = %q, want Configure Ethernet", m.ethernetMenu.options[0].label)
+	}
 
+	updated, cmd = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = updated.(Model)
 	if cmd != nil {
 		t.Fatal("new Ethernet profile should not require an existing-profile load")
 	}
 	if m.form == nil {
-		t.Fatal("new Ethernet device should open a form")
+		t.Fatal("Configure Ethernet should open a form")
 	}
 	if m.form.profile.ProfilePath != "" {
 		t.Fatalf("new profile path = %q, want empty", m.form.profile.ProfilePath)
@@ -396,8 +414,9 @@ func TestDashboardRendersTroubleshootCardAndProjectBranding(t *testing.T) {
 	for _, want := range []string{
 		"friendly network manager from Home Server Project",
 		"https://github.com/home-server-project",
-		"Networking ON",
-		"Wi-Fi ON",
+		"Networking ",
+		"Wi-Fi ",
+		"ON",
 		"Troubleshoot",
 		"t troubleshoot",
 	} {
@@ -419,5 +438,23 @@ func TestEnterOnTroubleshootCardOpensDiagnostics(t *testing.T) {
 	m = updated.(Model)
 	if m.diagnostics == nil || cmd == nil {
 		t.Fatal("Enter on Troubleshoot card should open diagnostics")
+	}
+}
+
+func TestDisconnectedEthernetMenuOffersConnect(t *testing.T) {
+	snapshot := sampleSnapshot()
+	snapshot.Devices[0].ActiveConnection = nil
+	source := &fakeSource{snapshot: snapshot}
+	m := New(source)
+	m.snapshot = snapshot
+	m.loading = false
+
+	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = updated.(Model)
+	if m.ethernetMenu == nil {
+		t.Fatal("Ethernet action menu missing")
+	}
+	if m.ethernetMenu.options[0].label != "Connect" {
+		t.Fatalf("disconnected Ethernet first action = %q, want Connect", m.ethernetMenu.options[0].label)
 	}
 }
