@@ -204,11 +204,11 @@ func resolveNetBirdSocket() (string, error) {
 
 type nbLoginRequest struct{}
 
-func (*nbLoginRequest) Reset()         {}
+func (*nbLoginRequest) Reset() {}
 
 func (*nbLoginRequest) String() string { return "LoginRequest{}" }
 
-func (*nbLoginRequest) ProtoMessage()  {}
+func (*nbLoginRequest) ProtoMessage() {}
 
 type nbLoginResponse struct {
 	NeedsSSOLogin           bool   `protobuf:"varint,1,opt,name=needsSSOLogin,proto3" json:"needsSSOLogin,omitempty"`
@@ -217,104 +217,104 @@ type nbLoginResponse struct {
 	VerificationURIComplete string `protobuf:"bytes,4,opt,name=verificationURIComplete,proto3" json:"verificationURIComplete,omitempty"`
 }
 
-func (*nbLoginResponse) Reset()         {}
+func (*nbLoginResponse) Reset() {}
 
 func (*nbLoginResponse) String() string { return "LoginResponse{}" }
 
-func (*nbLoginResponse) ProtoMessage()  {}
+func (*nbLoginResponse) ProtoMessage() {}
 
 type nbWaitSSOLoginRequest struct {
 	UserCode string `protobuf:"bytes,1,opt,name=userCode,proto3" json:"userCode,omitempty"`
 }
 
-func (*nbWaitSSOLoginRequest) Reset()         {}
+func (*nbWaitSSOLoginRequest) Reset() {}
 
 func (*nbWaitSSOLoginRequest) String() string { return "WaitSSOLoginRequest{}" }
 
-func (*nbWaitSSOLoginRequest) ProtoMessage()  {}
+func (*nbWaitSSOLoginRequest) ProtoMessage() {}
 
 type nbWaitSSOLoginResponse struct {
 	Email string `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
 }
 
-func (*nbWaitSSOLoginResponse) Reset()         {}
+func (*nbWaitSSOLoginResponse) Reset() {}
 
 func (*nbWaitSSOLoginResponse) String() string { return "WaitSSOLoginResponse{}" }
 
-func (*nbWaitSSOLoginResponse) ProtoMessage()  {}
+func (*nbWaitSSOLoginResponse) ProtoMessage() {}
 
 type nbUpRequest struct {
 	Async bool `protobuf:"varint,4,opt,name=async,proto3" json:"async,omitempty"`
 }
 
-func (*nbUpRequest) Reset()         {}
+func (*nbUpRequest) Reset() {}
 
 func (*nbUpRequest) String() string { return "UpRequest{}" }
 
-func (*nbUpRequest) ProtoMessage()  {}
+func (*nbUpRequest) ProtoMessage() {}
 
 type nbUpResponse struct{}
 
-func (*nbUpResponse) Reset()         {}
+func (*nbUpResponse) Reset() {}
 
 func (*nbUpResponse) String() string { return "UpResponse{}" }
 
-func (*nbUpResponse) ProtoMessage()  {}
+func (*nbUpResponse) ProtoMessage() {}
 
 type nbDownRequest struct{}
 
-func (*nbDownRequest) Reset()         {}
+func (*nbDownRequest) Reset() {}
 
 func (*nbDownRequest) String() string { return "DownRequest{}" }
 
-func (*nbDownRequest) ProtoMessage()  {}
+func (*nbDownRequest) ProtoMessage() {}
 
 type nbDownResponse struct{}
 
-func (*nbDownResponse) Reset()         {}
+func (*nbDownResponse) Reset() {}
 
 func (*nbDownResponse) String() string { return "DownResponse{}" }
 
-func (*nbDownResponse) ProtoMessage()  {}
+func (*nbDownResponse) ProtoMessage() {}
 
 type nbStatusRequest struct {
 	GetFullPeerStatus bool `protobuf:"varint,1,opt,name=getFullPeerStatus,proto3" json:"getFullPeerStatus,omitempty"`
 }
 
-func (*nbStatusRequest) Reset()         {}
+func (*nbStatusRequest) Reset() {}
 
 func (*nbStatusRequest) String() string { return "StatusRequest{}" }
 
-func (*nbStatusRequest) ProtoMessage()  {}
+func (*nbStatusRequest) ProtoMessage() {}
 
 type nbStatusResponse struct {
 	Status     string        `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
 	FullStatus *nbFullStatus `protobuf:"bytes,2,opt,name=fullStatus,proto3" json:"fullStatus,omitempty"`
 }
 
-func (*nbStatusResponse) Reset()         {}
+func (*nbStatusResponse) Reset() {}
 
 func (*nbStatusResponse) String() string { return "StatusResponse{}" }
 
-func (*nbStatusResponse) ProtoMessage()  {}
+func (*nbStatusResponse) ProtoMessage() {}
 
 type nbFullStatus struct {
 	LocalPeerState *nbLocalPeerState `protobuf:"bytes,3,opt,name=localPeerState,proto3" json:"localPeerState,omitempty"`
 }
 
-func (*nbFullStatus) Reset()         {}
+func (*nbFullStatus) Reset() {}
 
 func (*nbFullStatus) String() string { return "FullStatus{}" }
 
-func (*nbFullStatus) ProtoMessage()  {}
+func (*nbFullStatus) ProtoMessage() {}
 
 type nbLocalPeerState struct {
 	IP   string `protobuf:"bytes,1,opt,name=IP,proto3" json:"IP,omitempty"`
 	IPv6 string `protobuf:"bytes,8,opt,name=ipv6,proto3" json:"ipv6,omitempty"`
 }
 
-func (*nbLocalPeerState) Reset()         {}
+func (*nbLocalPeerState) Reset() {}
 
 func (*nbLocalPeerState) String() string { return "LocalPeerState{}" }
 
-func (*nbLocalPeerState) ProtoMessage()  {}
+func (*nbLocalPeerState) ProtoMessage() {}
