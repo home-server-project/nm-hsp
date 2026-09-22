@@ -32,12 +32,14 @@ type ethernetActionMenu struct {
 	options []ethernetMenuOption
 	cursor  int
 	busy    bool
+	notice  string
 	err     error
 }
 
 type ethernetOperationMsg struct {
-	notice string
-	err    error
+	notice   string
+	err      error
+	snapshot *model.Snapshot
 }
 
 func newEthernetActionMenu(device model.Device, profile *model.ConnectionProfile) *ethernetActionMenu {
@@ -62,13 +64,17 @@ func (m *Model) updateEthernetMenu(msg tea.Msg) (bool, tea.Cmd) {
 	switch msg := msg.(type) {
 	case ethernetOperationMsg:
 		m.ethernetMenu.busy = false
+		if msg.snapshot != nil {
+			m.snapshot = *msg.snapshot
+			m.rebuildEthernetMenu()
+		}
 		if msg.err != nil {
 			m.ethernetMenu.err = msg.err
 			return false, nil
 		}
-		m.notice = msg.notice
-		m.loading = true
-		return true, m.loadSnapshot()
+		m.ethernetMenu.notice = msg.notice
+		m.ethernetMenu.err = nil
+		return false, nil
 
 	case tea.KeyPressMsg:
 		if m.ethernetMenu.busy {
@@ -114,10 +120,31 @@ func (m Model) activateEthernet(profile model.ConnectionProfile, device model.De
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if err := m.source.ActivateEthernetProfile(ctx, profile.ObjectPath, device.ObjectPath); err != nil {
-			return ethernetOperationMsg{err: err}
+
+		callErr := m.source.ActivateEthernetProfile(ctx, profile.ObjectPath, device.ObjectPath)
+		var snapshot model.Snapshot
+		var stateErr error
+		if callErr != nil {
+			var current model.Device
+			snapshot, current, stateErr = currentDeviceSnapshot(ctx, m.source, device.ObjectPath, device.Interface)
+			if stateErr == nil && activationMatches(current, profile.UUID, "") {
+				callErr = nil
+			}
+		} else {
+			snapshot, _, stateErr = waitForDeviceActivation(
+				ctx,
+				m.source,
+				device.ObjectPath,
+				device.Interface,
+				profile.UUID,
+				"",
+			)
 		}
-		return ethernetOperationMsg{notice: "Connected using saved Ethernet profile " + profile.ID + "."}
+		return ethernetOperationMsg{
+			notice:   "Connected using saved Ethernet profile " + profile.ID + ".",
+			err:      operationStateError("connect Ethernet", callErr, stateErr),
+			snapshot: &snapshot,
+		}
 	}
 }
 
@@ -125,11 +152,38 @@ func (m Model) disconnectEthernet(device model.Device) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if err := m.source.DisconnectEthernet(ctx, device.ObjectPath); err != nil {
-			return ethernetOperationMsg{err: err}
+
+		callErr := m.source.DisconnectEthernet(ctx, device.ObjectPath)
+		snapshot, _, stateErr := waitForDeviceDisconnected(
+			ctx,
+			m.source,
+			device.ObjectPath,
+			device.Interface,
+		)
+		return ethernetOperationMsg{
+			notice:   "Ethernet disconnected.",
+			err:      operationStateError("disconnect Ethernet", callErr, stateErr),
+			snapshot: &snapshot,
 		}
-		return ethernetOperationMsg{notice: "Ethernet disconnected."}
 	}
+}
+
+func (m *Model) rebuildEthernetMenu() {
+	if m.ethernetMenu == nil {
+		return
+	}
+	device, ok := findDevice(
+		m.snapshot.Devices,
+		m.ethernetMenu.device.ObjectPath,
+		m.ethernetMenu.device.Interface,
+	)
+	if !ok {
+		return
+	}
+	notice := m.ethernetMenu.notice
+	menu := newEthernetActionMenu(device, m.preferredEthernetProfile(device))
+	menu.notice = notice
+	m.ethernetMenu = menu
 }
 
 func (m Model) renderEthernetMenu(width int) string {
@@ -152,6 +206,10 @@ func (m Model) renderEthernetMenu(width int) string {
 	if menu.err != nil {
 		out.WriteString("\n\n")
 		out.WriteString(errorStyle.Render(menu.err.Error()))
+	}
+	if menu.notice != "" {
+		out.WriteString("\n\n")
+		out.WriteString(goodStyle.Render(menu.notice))
 	}
 	if menu.busy {
 		out.WriteString("\n\n")

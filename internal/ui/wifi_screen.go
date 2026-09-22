@@ -45,9 +45,10 @@ const (
 )
 
 type wifiOperationMsg struct {
-	kind   wifiOperationKind
-	notice string
-	err    error
+	kind    wifiOperationKind
+	notice  string
+	err     error
+	refresh *wifiRefreshMsg
 }
 
 type wifiListItem struct {
@@ -117,14 +118,10 @@ func (s *wifiScreen) init() tea.Cmd {
 func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 	switch msg := msg.(type) {
 	case wifiRefreshMsg:
-		s.snapshot = msg.snapshot
-		s.device = msg.device
-		s.networks = msg.networks
-		s.wirelessEnabled = msg.snapshot.WirelessEnabled
+		s.applyRefresh(msg)
 		s.loading = false
 		s.busy = false
 		s.err = nil
-		s.rebuildItems()
 		return false, nil
 
 	case wifiRefreshErrMsg:
@@ -135,11 +132,17 @@ func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 
 	case wifiOperationMsg:
 		s.busy = false
+		if msg.refresh != nil {
+			s.applyRefresh(*msg.refresh)
+		}
 		if msg.err != nil {
 			s.routeOperationError(msg)
 			return false, nil
 		}
 		s.finishOperation(msg)
+		if msg.refresh != nil {
+			return false, nil
+		}
 		s.loading = true
 		return false, s.refresh(false)
 
@@ -387,6 +390,33 @@ func (s *wifiScreen) openActionMenu(item wifiListItem) {
 	}
 }
 
+func (s *wifiScreen) applyRefresh(msg wifiRefreshMsg) {
+	s.snapshot = msg.snapshot
+	s.device = msg.device
+	s.networks = msg.networks
+	s.wirelessEnabled = msg.snapshot.WirelessEnabled
+	s.rebuildItems()
+}
+
+func (s *wifiScreen) refreshForSnapshot(
+	ctx context.Context,
+	snapshot model.Snapshot,
+) (*wifiRefreshMsg, error) {
+	device, ok := findDevice(snapshot.Devices, s.device.ObjectPath, s.device.Interface)
+	if !ok {
+		return nil, fmt.Errorf("Wi-Fi adapter %s is no longer available", s.device.Interface)
+	}
+	var networks []model.WiFiNetwork
+	var err error
+	if snapshot.WirelessEnabled {
+		networks, err = s.source.WiFiNetworks(ctx, device.ObjectPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &wifiRefreshMsg{snapshot: snapshot, device: device, networks: networks}, nil
+}
+
 func (s *wifiScreen) refresh(rescan bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -438,10 +468,36 @@ func (s *wifiScreen) activate(profile model.ConnectionProfile, accessPointPath s
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if err := s.source.ActivateWiFiProfile(ctx, profile.ObjectPath, s.device.ObjectPath, accessPointPath); err != nil {
-			return wifiOperationMsg{kind: wifiOperationGeneric, err: err}
+
+		callErr := s.source.ActivateWiFiProfile(ctx, profile.ObjectPath, s.device.ObjectPath, accessPointPath)
+		var snapshot model.Snapshot
+		var stateErr error
+		if callErr != nil {
+			var device model.Device
+			snapshot, device, stateErr = currentDeviceSnapshot(ctx, s.source, s.device.ObjectPath, s.device.Interface)
+			if stateErr == nil && activationMatches(device, profile.UUID, profile.SSID) {
+				callErr = nil
+			}
+		} else {
+			snapshot, _, stateErr = waitForDeviceActivation(
+				ctx,
+				s.source,
+				s.device.ObjectPath,
+				s.device.Interface,
+				profile.UUID,
+				profile.SSID,
+			)
 		}
-		return wifiOperationMsg{kind: wifiOperationGeneric, notice: "Connected using saved profile " + profile.ID + "."}
+		refresh, refreshErr := s.refreshForSnapshot(ctx, snapshot)
+		if stateErr == nil && refreshErr != nil {
+			stateErr = refreshErr
+		}
+		return wifiOperationMsg{
+			kind:    wifiOperationGeneric,
+			notice:  "Connected using saved profile " + profile.ID + ".",
+			err:     operationStateError("connect Wi-Fi", callErr, stateErr),
+			refresh: refresh,
+		}
 	}
 }
 
@@ -449,10 +505,24 @@ func (s *wifiScreen) disconnect() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if err := s.source.DisconnectWiFi(ctx, s.device.ObjectPath); err != nil {
-			return wifiOperationMsg{kind: wifiOperationGeneric, err: err}
+
+		callErr := s.source.DisconnectWiFi(ctx, s.device.ObjectPath)
+		snapshot, _, stateErr := waitForDeviceDisconnected(
+			ctx,
+			s.source,
+			s.device.ObjectPath,
+			s.device.Interface,
+		)
+		refresh, refreshErr := s.refreshForSnapshot(ctx, snapshot)
+		if stateErr == nil && refreshErr != nil {
+			stateErr = refreshErr
 		}
-		return wifiOperationMsg{kind: wifiOperationGeneric, notice: "Wi-Fi disconnected."}
+		return wifiOperationMsg{
+			kind:    wifiOperationGeneric,
+			notice:  "Wi-Fi disconnected.",
+			err:     operationStateError("disconnect Wi-Fi", callErr, stateErr),
+			refresh: refresh,
+		}
 	}
 }
 
@@ -484,14 +554,47 @@ func (s *wifiScreen) connect(request model.WiFiConnectRequest) tea.Cmd {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_, _, err := s.source.ConnectWiFi(ctx, request)
-		if err != nil {
+		_, _, callErr := s.source.ConnectWiFi(ctx, request)
+		if callErr != nil {
+			snapshot, _, snapshotErr := currentDeviceSnapshot(
+				ctx,
+				s.source,
+				s.device.ObjectPath,
+				s.device.Interface,
+			)
+			refresh, refreshErr := s.refreshForSnapshot(ctx, snapshot)
+			if snapshotErr == nil && refreshErr != nil {
+				snapshotErr = refreshErr
+			}
+			err := security.RedactError(callErr, request.Password)
+			if snapshotErr != nil {
+				err = fmt.Errorf("%v; refresh state: %w", err, snapshotErr)
+			}
 			return wifiOperationMsg{
-				kind: wifiOperationConnect,
-				err:  security.RedactError(err, request.Password),
+				kind:    wifiOperationConnect,
+				err:     err,
+				refresh: refresh,
 			}
 		}
-		return wifiOperationMsg{kind: wifiOperationConnect, notice: "Connected to " + request.SSID + "."}
+
+		snapshot, _, stateErr := waitForDeviceActivation(
+			ctx,
+			s.source,
+			s.device.ObjectPath,
+			s.device.Interface,
+			"",
+			request.SSID,
+		)
+		refresh, refreshErr := s.refreshForSnapshot(ctx, snapshot)
+		if stateErr == nil && refreshErr != nil {
+			stateErr = refreshErr
+		}
+		return wifiOperationMsg{
+			kind:    wifiOperationConnect,
+			notice:  "Connected to " + request.SSID + ".",
+			err:     stateErr,
+			refresh: refresh,
+		}
 	}
 }
 
