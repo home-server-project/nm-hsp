@@ -100,4 +100,58 @@ func TestNetBirdConnectedStateNormalizesCIDRs(t *testing.T) {
 		t.Fatalf("addresses = %#v, want %#v", state.Addresses, wantAddresses)
 	}
 	if state.StatusError != "" {
-		t.Fatalf("disabled service should not be an error: %q", state.StatusError" —Ğ§Ğ ¦gVæ2FW7D–æ7F—fU6W'f–6TFöW4æ÷EVW'•&÷f–FW"‡B§FW7F–æråB’° —'VææW"£Òff¶U'VææW'° —F‡3¢Ö·7G&–æuÖ&ööÇ²'F–Ç66ÆR#¢G'VWÒÀ —&W7VÇG3¢Ö·7G&–æuÖf¶U&W7VÇG° ’'7—7FVÖ7FÂ—2ÖVæ&ÆVBF–Ç66ÆVBç6W'f–6R#¢¶÷WGWC¢&F—6&ÆVEÆâ"ÂW'#¢W'&÷'2äæWr‚&W†—B7FGW2"’—ÒÀ ’'7—7FVÖ7FÂ—2Ö7F—fRF–Ç66ÆVBç6W'f–6R#¢¶÷WGWC¢&–æ7F—fUÆâ"ÂW'#¢W'&÷'2äæWr‚&W†—B7FGW22"’—ÒÀ —ÒÀ —Ğ  —7FFR£ÒæWtÖævW"‡'VææW"’å6æ6†÷B†6öçFW‡Bä&6¶w&÷VæB‚’•³Ğ ––b7FFRå6W'f–6U'Vææ–ærÇÂ7FFRä6öææV7F–öå7FFRÒ&–æ7F—fR"° —BäfFÆb‚'F–Ç66ÆR7FFRÒR7b"Â7FFR —Ğ –f÷"òÂ6ÆÂ£Ò&ævR'VææW"æ6ÆÇ2° ––b6ÆÂÓÒ'F–Ç66ÆR7FGW2ÒÖ§6öâ"° —BäfFÂ‚&–æ7F—fR6W'f–6R6†÷VÆBæ÷BVW'’&÷f–FW"4Ä’" —Ğ —Ğ§Ğ ¦gVæ2FW7E&÷f–FW%7FGW4f–ÇW&T—46öçF–æVB‡B§FW7F–æråB’° —'VææW"£Òff¶U'VææW'° —F‡3¢Ö·7G&–æuÖ&ööÇ²'F–Ç66ÆR#¢G'VWÒÀ —&W7VÇG3¢Ö·7G&–æuÖf¶U&W7VÇG° ’'7—7FVÖ7FÂ—2ÖVæ&ÆVBF–Ç66ÆVBç6W'f–6R#¢¶÷WGWC¢&Væ&ÆVEÆâ'ÒÀ ’'7—7FVÖ7FÂ—2Ö7F—fRF–Ç66ÆVBç6W'f–6R#¢¶÷WGWC¢&7F—fUÆâ'ÒÀ ’'F–Ç66ÆR7FGW2ÒÖ§6öâ#¢¶÷WGWC¢&æ÷BÖ§6öâ"ÂW'#¢W'&÷'2äæWr‚&W†—B7FGW2"—ÒÀ —ÒÀ —Ğ  —7FFW2£ÒæWtÖævW"‡'VææW"’å6æ6†÷B†6öçFW‡Bä&6¶w&÷VæB‚’ ––b7FFW5³Òä6öææV7F–öå7FFRÒ'Væ¶æ÷vâ"ÇÂ7FFW5³Òå7FGW4W'&÷"ÓÒ""° —BäfFÆb‚'F–Ç66ÆRf–ÇW&R7FFRÒR7b"Â7FFW5³Ò —Ğ ––b7FFW5³Òä”BÒÖöFVÂåeå&÷f–FW$æWD&—&B° —BäfFÆb‚'&VÖ–æ–ær&÷f–FW"v2æ÷B6öÆÆV7FVC¢R7b"Â7FFW2 —Ğ§Ğ ¦gVæ2FW7E'6TæWD&—&E7FGW4fÆÇ4&6µFôÖævVÖVçE7FFR‡B§FW7F–æråB’° —7FFRÂ6öææV7FVBÂFG&W76W2ÂW'"£Ò'6TæWD&—&E7FGW2…µÖ'—FR†²&ÖævVÖVçB#§²&6öææV7FVB#§G'VWÒÂ&æWF&—&D—#¢#ãcBãã#ób'Ö’ ––bW'"Òæ–Â° —BäfFÂ†W'" —Ğ ––b7FFRÒ$6öææV7FVB"ÇÂ6öææV7FVB° —BäfFÆb‚'7FFRÒW6öææV7FVBÒWb"Â7FFRÂ6öææV7FVB —Ğ ––b&VfÆV7BäFVWWVÂ†FG&W76W2Âµ×7G&–æw²#ãcBãã#'Ò’° —BäfFÆb‚&FG&W76W2ÒR7b"ÂFG&W76W2 —Ğ§Ğ 
+		t.Fatalf("disabled service should not be an error: %q", state.StatusError)
+	}
+}
+
+func TestInactiveServiceDoesNotQueryProvider(t *testing.T) {
+	runner := &fakeRunner{
+		paths: map[string]bool{"tailscale": true},
+		results: map[string]fakeResult{
+			"systemctl is-enabled tailscaled.service": {output: "disabled\n", err: errors.New("exit status 1")},
+			"systemctl is-active tailscaled.service":  {output: "inactive\n", err: errors.New("exit status 3")},
+		},
+	}
+
+	state := newManager(runner).Snapshot(context.Background())[0]
+	if state.ServiceRunning || state.ConnectionState != "inactive" {
+		t.Fatalf("tailscale state = %#v", state)
+	}
+	for _, call := range runner.calls {
+		if call == "tailscale status --json" {
+			t.Fatal("inactive service should not query provider CLI")
+		}
+	}
+}
+
+func TestProviderStatusFailureIsContained(t *testing.T) {
+	runner := &fakeRunner{
+		paths: map[string]bool{"tailscale": true},
+		results: map[string]fakeResult{
+			"systemctl is-enabled tailscaled.service": {output: "enabled\n"},
+			"systemctl is-active tailscaled.service":  {output: "active\n"},
+			"tailscale status --json":                 {output: "not-json", err: errors.New("exit status 1")},
+		},
+	}
+
+	states := newManager(runner).Snapshot(context.Background())
+	if states[0].ConnectionState != "unknown" || states[0].StatusError == "" {
+		t.Fatalf("tailscale failure state = %#v", states[0])
+	}
+	if states[1].ID != model.VPNProviderNetBird {
+		t.Fatalf("remaining provider was not collected: %#v", states)
+	}
+}
+
+func TestParseNetBirdStatusFallsBackToManagementState(t *testing.T) {
+	state, connected, addresses, err := parseNetBirdStatus([]byte(`{"management":{"connected":true},"netbirdIp":"100.64.10.20/16"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != "Connected" || !connected {
+		t.Fatalf("state = %q connected = %v", state, connected)
+	}
+	if !reflect.DeepEqual(addresses, []string{"100.64.10.20"}) {
+		t.Fatalf("addresses = %#v", addresses)
+	}
+}
