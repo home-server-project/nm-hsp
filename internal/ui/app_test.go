@@ -414,9 +414,9 @@ func TestDashboardRendersTroubleshootCardAndProjectBranding(t *testing.T) {
 	for _, want := range []string{
 		"friendly network manager from Home Server Project",
 		"https://github.com/home-server-project",
-		"Networking ",
+		"Ethernet ",
 		"Wi-Fi ",
-		"ON",
+		"connected",
 		"Troubleshoot",
 		"t troubleshoot",
 	} {
@@ -534,13 +534,25 @@ func TestDiagnosticsJumpOpensWiFiManagerFromDashboard(t *testing.T) {
 	m.diagnostics = &diagnosticsScreen{
 		source:   source,
 		snapshot: snapshot,
-		jumpWiFi: &snapshot.Devices[1],
+		report: model.DiagnosticReport{
+			Checks: []model.DiagnosticCheck{
+				{
+					ID:         "wifi-not-connected",
+					Interface:  "wlan0",
+					DevicePath: snapshot.Devices[1].ObjectPath,
+					Status:     model.DiagnosticInfo,
+					Title:      "Wi-Fi is not connected",
+				},
+			},
+		},
 	}
 
 	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m = updated.(Model)
-	_ = cmd
 	if m.wifi == nil || m.wifi.device.Interface != "wlan0" {
 		t.Fatalf("diagnostics jump did not open Wi-Fi manager: %#v", m.wifi)
+	}
+	if cmd == nil {
+		t.Fatal("diagnostics jump should refresh nearby Wi-Fi networks")
 	}
 }
