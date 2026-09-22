@@ -12,17 +12,17 @@ import (
 )
 
 type fakeSource struct {
-	snapshot        model.Snapshot
-	ethernetProfile model.EthernetProfile
-	loadErr         error
-	saveErr         error
-	saved           *model.EthernetProfile
-	wifiNetworks    []model.WiFiNetwork
-	wifiConnectErr  error
-	wifiRequest     model.WiFiConnectRequest
-	repairErr       error
-	appliedRepair   *model.RepairAction
-	ethernetActivated bool
+	snapshot             model.Snapshot
+	ethernetProfile      model.EthernetProfile
+	loadErr              error
+	saveErr              error
+	saved                *model.EthernetProfile
+	wifiNetworks         []model.WiFiNetwork
+	wifiConnectErr       error
+	wifiRequest          model.WiFiConnectRequest
+	repairErr            error
+	appliedRepair        *model.RepairAction
+	ethernetActivated    bool
 	ethernetDisconnected bool
 }
 
