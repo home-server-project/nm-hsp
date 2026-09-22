@@ -107,8 +107,8 @@ func TestScrubWiFiSettingsSecretDropsTemporaryPSK(t *testing.T) {
 func TestPatchWiFiProfileMetadataPreservesLegacyIPv6Signatures(t *testing.T) {
 	settings := map[string]map[string]dbus.Variant{
 		"connection": {
-			"type":         dbus.MakeVariant("802-11-wireless"),
-			"autoconnect":  dbus.MakeVariant(true),
+			"type":        dbus.MakeVariant("802-11-wireless"),
+			"autoconnect": dbus.MakeVariant(true),
 		},
 		"ipv6": {
 			"addresses": dbus.MakeVariantWithSignature(
