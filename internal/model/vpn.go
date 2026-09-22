@@ -21,6 +21,7 @@ type VPNProviderState struct {
 	ServiceUnit     string
 	ServiceEnabled  bool
 	ServiceState    string
+	ServiceRunning  bool
 	ConnectionState string
 	Connected       bool
 	Addresses       []string
