@@ -138,7 +138,7 @@ func TestUnsupportedNewEnterpriseDoesNotOfferConnect(t *testing.T) {
 	}
 }
 
-func TestOutOfRangeSavedWiFiProfileIsListed(t *testing.T) {
+func TestOutOfRangeSavedWiFiProfileIsSeparatedFromNearbyNetworks(t *testing.T) {
 	screen := &wifiScreen{
 		device: model.Device{Interface: "wlan0"},
 		snapshot: model.Snapshot{
@@ -154,8 +154,11 @@ func TestOutOfRangeSavedWiFiProfileIsListed(t *testing.T) {
 		},
 	}
 	screen.rebuildItems()
-	if len(screen.items) != 1 || screen.items[0].profile == nil {
-		t.Fatalf("saved out-of-range profile not listed: %#v", screen.items)
+	if len(screen.items) != 0 {
+		t.Fatalf("out-of-range saved profile leaked into nearby networks: %#v", screen.items)
+	}
+	if len(screen.savedItems) != 1 || screen.savedItems[0].profile == nil {
+		t.Fatalf("saved profile missing from saved-networks view: %#v", screen.savedItems)
 	}
 }
 
@@ -220,5 +223,132 @@ func TestWiFiConnectCommandClearsSecretAndRedactsBackendError(t *testing.T) {
 	}
 	if !source.wifiRequest.Password.Empty() {
 		t.Fatal("backend request copy should observe the same cleared secret state")
+	}
+}
+
+func TestWiFiMainViewStartsWithSavedNetworksEntry(t *testing.T) {
+	screen := &wifiScreen{
+		device:          model.Device{Interface: "wlan0"},
+		wirelessEnabled: true,
+		snapshot: model.Snapshot{
+			Profiles: []model.ConnectionProfile{
+				{
+					ObjectPath: "/profile",
+					ID:         "Old Network",
+					SSID:       "Old Network",
+					Type:       "802-11-wireless",
+				},
+			},
+		},
+		networks: []model.WiFiNetwork{
+			{
+				ObjectPath: "/ap/current",
+				SSID:       "Current",
+				Active:     true,
+				Strength:   80,
+				Security:   model.WiFiSecurityPersonal,
+			},
+		},
+	}
+	screen.rebuildItems()
+
+	output := screen.render(90, 24)
+	if !strings.Contains(output, "Saved networks") {
+		t.Fatal("nearby view should start with a Saved networks entry")
+	}
+	if strings.Contains(output, "Old Network") {
+		t.Fatal("out-of-range saved profile should not fill the nearby-networks view")
+	}
+	if !strings.Contains(output, "Current") {
+		t.Fatal("visible current network missing from nearby-networks view")
+	}
+}
+
+func TestWiFiConnectedNetworkSortsFirst(t *testing.T) {
+	screen := &wifiScreen{
+		device: model.Device{Interface: "wlan0"},
+		networks: []model.WiFiNetwork{
+			{SSID: "Strong", Strength: 100},
+			{SSID: "Current", Strength: 20, Active: true},
+		},
+	}
+	screen.rebuildItems()
+	if len(screen.items) != 2 || screen.items[0].network == nil || screen.items[0].network.SSID != "Current" {
+		t.Fatalf("connected network should be first: %#v", screen.items)
+	}
+}
+
+func TestWiFiActionMenuRendersAsModal(t *testing.T) {
+	screen := &wifiScreen{
+		device:          model.Device{Interface: "wlan0"},
+		wirelessEnabled: true,
+		networks: []model.WiFiNetwork{
+			{SSID: "One"},
+			{SSID: "Two"},
+			{SSID: "Three"},
+		},
+	}
+	screen.rebuildItems()
+	screen.openActionMenu(screen.items[0])
+
+	output := screen.render(90, 18)
+	if !strings.Contains(output, "Actions · One") {
+		t.Fatal("action menu title should be visible immediately")
+	}
+	if strings.Contains(output, "Three") {
+		t.Fatal("modal action view should not render the network list behind or below it")
+	}
+
+	_, _ = screen.update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if screen.menu != nil {
+		t.Fatal("Esc should close the Wi-Fi action modal")
+	}
+}
+
+func TestWiFiSavedNetworksEntryOpensDedicatedView(t *testing.T) {
+	screen := &wifiScreen{
+		device:          model.Device{Interface: "wlan0"},
+		wirelessEnabled: true,
+		snapshot: model.Snapshot{
+			Profiles: []model.ConnectionProfile{
+				{
+					ObjectPath: "/profile",
+					ID:         "Home",
+					SSID:       "Home",
+					Type:       "802-11-wireless",
+				},
+			},
+		},
+	}
+	screen.rebuildItems()
+
+	_, _ = screen.update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if !screen.savedOpen {
+		t.Fatal("Enter on Saved networks should open the dedicated saved-profile view")
+	}
+	output := screen.render(90, 24)
+	if !strings.Contains(output, "Saved networks") || !strings.Contains(output, "Home") {
+		t.Fatalf("saved-networks view missing expected content: %q", output)
+	}
+}
+
+func TestWiFiScrollingKeepsSelectedEntryVisible(t *testing.T) {
+	screen := &wifiScreen{
+		device:          model.Device{Interface: "wlan0"},
+		wirelessEnabled: true,
+	}
+	for index := 0; index < 20; index++ {
+		screen.networks = append(screen.networks, model.WiFiNetwork{
+			SSID:     fmt.Sprintf("Network-%02d", index),
+			Strength: uint8(100 - index),
+		})
+	}
+	screen.rebuildItems()
+	screen.cursor = screen.mainItemCount() - 1
+
+	output := screen.render(90, 18)
+	selected := screen.items[len(screen.items)-1].network.SSID
+	if !strings.Contains(output, selected) {
+		t.Fatalf("selected network %q should stay visible in a short terminal", selected)
 	}
 }

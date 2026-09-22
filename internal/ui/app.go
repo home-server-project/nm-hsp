@@ -394,7 +394,7 @@ func (m Model) render() string {
 		return m.diagnostics.render(width-2, m.height)
 	}
 	if m.wifi != nil {
-		return m.wifi.render(width - 2)
+		return m.wifi.render(width-2, m.height)
 	}
 	if m.form != nil {
 		return m.form.render(width-2, m.formSaving)

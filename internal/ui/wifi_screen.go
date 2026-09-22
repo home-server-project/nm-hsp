@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -71,6 +72,7 @@ type wifiMenuOption struct {
 
 type wifiActionMenu struct {
 	title   string
+	item    wifiListItem
 	options []wifiMenuOption
 	cursor  int
 }
@@ -81,7 +83,10 @@ type wifiScreen struct {
 	snapshot        model.Snapshot
 	networks        []model.WiFiNetwork
 	items           []wifiListItem
+	savedItems      []wifiListItem
 	cursor          int
+	savedCursor     int
+	savedOpen       bool
 	loading         bool
 	busy            bool
 	notice          string
@@ -158,6 +163,9 @@ func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 		if s.menu != nil {
 			return false, s.updateMenu(msg)
 		}
+		if s.savedOpen {
+			return false, s.updateSavedNetworks(msg)
+		}
 
 		switch msg.String() {
 		case "esc", "q":
@@ -167,12 +175,18 @@ func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 				s.cursor--
 			}
 		case "down", "j":
-			if s.cursor+1 < len(s.items) {
+			if s.cursor+1 < s.mainItemCount() {
 				s.cursor++
 			}
 		case "enter":
-			if len(s.items) > 0 {
-				s.openActionMenu(s.items[s.cursor])
+			if s.cursor == 0 {
+				s.savedOpen = true
+				s.err = nil
+				s.notice = ""
+				return false, nil
+			}
+			if item, ok := s.mainSelectedItem(); ok {
+				s.openActionMenu(item)
 			}
 		case "r":
 			if s.wirelessEnabled {
@@ -191,6 +205,33 @@ func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 		}
 	}
 
+	return false, nil
+}
+
+func (s *wifiScreen) updateSavedNetworks(msg tea.KeyPressMsg) (bool, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		s.savedOpen = false
+		s.err = nil
+		return false, nil
+	case "up", "k":
+		if s.savedCursor > 0 {
+			s.savedCursor--
+		}
+	case "down", "j":
+		if s.savedCursor+1 < len(s.savedItems) {
+			s.savedCursor++
+		}
+	case "enter":
+		if len(s.savedItems) > 0 {
+			s.openActionMenu(s.savedItems[s.savedCursor])
+		}
+	case "r":
+		s.loading = true
+		s.notice = ""
+		s.err = nil
+		return false, s.refresh(true)
+	}
 	return false, nil
 }
 
@@ -266,7 +307,7 @@ func (s *wifiScreen) updateMenu(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "enter":
 		option := s.menu.options[s.menu.cursor]
-		item := s.items[s.cursor]
+		item := s.menu.item
 		s.menu = nil
 		return s.runMenuAction(option.action, item)
 	}
@@ -341,7 +382,11 @@ func (s *wifiScreen) openActionMenu(item wifiListItem) {
 	if len(options) == 1 && item.network != nil && !supportedNewWiFiSecurity(item.network.Security) {
 		s.err = fmt.Errorf("new %s Wi-Fi setup is not supported yet", item.network.Security)
 	}
-	s.menu = &wifiActionMenu{title: s.itemName(item), options: options}
+	s.menu = &wifiActionMenu{
+		title:   s.itemName(item),
+		item:    item,
+		options: options,
+	}
 }
 
 func (s *wifiScreen) refresh(rescan bool) tea.Cmd {
@@ -483,40 +528,90 @@ func (s *wifiScreen) finishOperation(msg wifiOperationMsg) {
 }
 
 func (s *wifiScreen) rebuildItems() {
-	items := make([]wifiListItem, 0, len(s.networks))
-	represented := make(map[string]bool)
-
+	visible := make([]wifiListItem, 0, len(s.networks))
 	for index := range s.networks {
 		network := s.networks[index]
 		if network.SSID == "" {
 			continue
 		}
-		profile := s.profileForNetwork(network)
-		if profile != nil {
-			represented[profile.UUID] = true
-		}
 		networkCopy := network
-		items = append(items, wifiListItem{network: &networkCopy, profile: profile})
+		visible = append(visible, wifiListItem{
+			network: &networkCopy,
+			profile: s.profileForNetwork(network),
+		})
 	}
+	sort.SliceStable(visible, func(i, j int) bool {
+		leftActive := visible[i].network != nil && visible[i].network.Active
+		rightActive := visible[j].network != nil && visible[j].network.Active
+		if leftActive != rightActive {
+			return leftActive
+		}
+		leftStrength := uint8(0)
+		rightStrength := uint8(0)
+		if visible[i].network != nil {
+			leftStrength = visible[i].network.Strength
+		}
+		if visible[j].network != nil {
+			rightStrength = visible[j].network.Strength
+		}
+		if leftStrength != rightStrength {
+			return leftStrength > rightStrength
+		}
+		return s.itemName(visible[i]) < s.itemName(visible[j])
+	})
 
+	saved := make([]wifiListItem, 0)
 	for index := range s.snapshot.Profiles {
 		profile := s.snapshot.Profiles[index]
-		if profile.Type != "802-11-wireless" || profile.ObjectPath == "" || represented[profile.UUID] {
+		if profile.Type != "802-11-wireless" || profile.ObjectPath == "" {
 			continue
 		}
 		if profile.InterfaceName != "" && profile.InterfaceName != s.device.Interface {
 			continue
 		}
 		profileCopy := profile
-		items = append(items, wifiListItem{profile: &profileCopy})
+		saved = append(saved, wifiListItem{
+			network: s.networkForProfile(profile),
+			profile: &profileCopy,
+		})
 	}
+	sort.SliceStable(saved, func(i, j int) bool {
+		leftActive := s.itemActive(saved[i])
+		rightActive := s.itemActive(saved[j])
+		if leftActive != rightActive {
+			return leftActive
+		}
+		return strings.ToLower(s.itemName(saved[i])) < strings.ToLower(s.itemName(saved[j]))
+	})
 
-	s.items = items
-	if len(items) == 0 {
+	s.items = visible
+	s.savedItems = saved
+	s.clampWiFiCursors()
+}
+
+func (s *wifiScreen) clampWiFiCursors() {
+	if s.mainItemCount() == 0 {
 		s.cursor = 0
-	} else if s.cursor >= len(items) {
-		s.cursor = len(items) - 1
+	} else if s.cursor >= s.mainItemCount() {
+		s.cursor = s.mainItemCount() - 1
 	}
+	if len(s.savedItems) == 0 {
+		s.savedCursor = 0
+	} else if s.savedCursor >= len(s.savedItems) {
+		s.savedCursor = len(s.savedItems) - 1
+	}
+}
+
+func (s *wifiScreen) mainItemCount() int {
+	return 1 + len(s.items)
+}
+
+func (s *wifiScreen) mainSelectedItem() (wifiListItem, bool) {
+	index := s.cursor - 1
+	if index < 0 || index >= len(s.items) {
+		return wifiListItem{}, false
+	}
+	return s.items[index], true
 }
 
 func (s *wifiScreen) profileForNetwork(network model.WiFiNetwork) *model.ConnectionProfile {
@@ -537,9 +632,30 @@ func (s *wifiScreen) profileForNetwork(network model.WiFiNetwork) *model.Connect
 	return fallback
 }
 
-func (s *wifiScreen) render(width int) string {
+func (s *wifiScreen) networkForProfile(profile model.ConnectionProfile) *model.WiFiNetwork {
+	var fallback *model.WiFiNetwork
+	for index := range s.networks {
+		network := s.networks[index]
+		if network.SSID != profile.SSID {
+			continue
+		}
+		networkCopy := network
+		if network.KeyManagement == profile.KeyManagement {
+			return &networkCopy
+		}
+		if fallback == nil || network.Strength > fallback.Strength {
+			fallback = &networkCopy
+		}
+	}
+	return fallback
+}
+
+func (s *wifiScreen) render(width, height int) string {
 	if width < 48 {
 		width = 48
+	}
+	if height <= 0 {
+		height = 24
 	}
 	if s.connectForm != nil {
 		return s.connectForm.render(width, s.busy)
@@ -547,16 +663,24 @@ func (s *wifiScreen) render(width int) string {
 	if s.profileForm != nil {
 		return s.profileForm.render(width, s.busy)
 	}
-
-	var out strings.Builder
-	out.WriteString(titleStyle.Render("Wi-Fi · " + emptyFallback(s.device.Interface, "adapter")))
-	radio := errorStyle.Render("Radio Off")
-	if s.wirelessEnabled {
-		radio = goodStyle.Render("Radio On")
+	if s.confirmForget != nil {
+		return s.renderForgetConfirmation(width)
 	}
-	out.WriteString("  " + radio)
+	if s.menu != nil {
+		return s.renderMenuModal(width)
+	}
+	if s.savedOpen {
+		return s.renderSavedNetworks(width, height)
+	}
+
+	return s.renderNearbyNetworks(width, height)
+}
+
+func (s *wifiScreen) renderNearbyNetworks(width, height int) string {
+	var out strings.Builder
+	out.WriteString(s.renderWiFiHeader())
 	out.WriteString("\n")
-	out.WriteString(mutedStyle.Render("Visible networks and saved profiles"))
+	out.WriteString(mutedStyle.Render("Nearby networks"))
 	out.WriteString("\n\n")
 
 	switch {
@@ -564,36 +688,92 @@ func (s *wifiScreen) render(width int) string {
 		out.WriteString(warningStyle.Render("Refreshing Wi-Fi networks..."))
 	case !s.wirelessEnabled:
 		out.WriteString(cardStyle.Width(cardContentWidth(width)).Render("Wi-Fi is turned off. Press w to turn it on."))
-	case len(s.items) == 0:
-		out.WriteString(cardStyle.Width(cardContentWidth(width)).Render("No Wi-Fi networks or saved profiles found. Press r to rescan."))
 	default:
-		for index, item := range s.items {
-			out.WriteString(s.renderItem(width, item, index == s.cursor))
+		start, end := s.mainVisibleRange(height)
+		for index := start; index < end; index++ {
+			if index == 0 {
+				out.WriteString(s.renderSavedEntry(width, s.cursor == 0))
+			} else {
+				out.WriteString(s.renderItem(width, s.items[index-1], index == s.cursor))
+			}
+			out.WriteString("\n")
+		}
+		if end-start < s.mainItemCount() {
+			out.WriteString(mutedStyle.Render(fmt.Sprintf(
+				"Showing %d-%d of %d entries",
+				start+1,
+				end,
+				s.mainItemCount(),
+			)))
 			out.WriteString("\n")
 		}
 	}
 
-	if s.menu != nil {
-		out.WriteString("\n")
-		out.WriteString(s.renderMenu(width))
-	}
-	if s.confirmForget != nil {
-		out.WriteString("\n")
-		out.WriteString(warningStyle.Render("Forget saved profile " + s.confirmForget.ID + "?  y/N"))
-	}
-	if s.err != nil {
-		out.WriteString("\n" + errorStyle.Render(s.err.Error()))
-	}
-	if s.notice != "" {
-		out.WriteString("\n" + goodStyle.Render(s.notice))
-	}
-	if s.busy {
-		out.WriteString("\n" + warningStyle.Render("Working..."))
+	s.renderWiFiMessages(&out)
+	out.WriteString("\n")
+	out.WriteString(helpStyle.Render("↑/↓ navigate   Enter select   r rescan   h hidden network   w radio   Esc back"))
+	return out.String()
+}
+
+func (s *wifiScreen) renderSavedNetworks(width, height int) string {
+	var out strings.Builder
+	out.WriteString(s.renderWiFiHeader())
+	out.WriteString("\n")
+	out.WriteString(titleStyle.Render("Saved networks"))
+	out.WriteString("  ")
+	out.WriteString(mutedStyle.Render(fmt.Sprintf("%d profiles", len(s.savedItems))))
+	out.WriteString("\n\n")
+
+	switch {
+	case s.loading:
+		out.WriteString(warningStyle.Render("Refreshing saved networks..."))
+	case len(s.savedItems) == 0:
+		out.WriteString(cardStyle.Width(cardContentWidth(width)).Render("No saved Wi-Fi profiles for this adapter."))
+	default:
+		start, end := s.savedVisibleRange(height)
+		for index := start; index < end; index++ {
+			out.WriteString(s.renderItem(width, s.savedItems[index], index == s.savedCursor))
+			out.WriteString("\n")
+		}
+		if end-start < len(s.savedItems) {
+			out.WriteString(mutedStyle.Render(fmt.Sprintf(
+				"Showing %d-%d of %d saved networks",
+				start+1,
+				end,
+				len(s.savedItems),
+			)))
+			out.WriteString("\n")
+		}
 	}
 
-	out.WriteString("\n\n")
-	out.WriteString(helpStyle.Render("↑/↓ navigate   Enter actions   r rescan   h hidden network   w radio   Esc back"))
+	s.renderWiFiMessages(&out)
+	out.WriteString("\n")
+	out.WriteString(helpStyle.Render("↑/↓ navigate   Enter actions   r refresh   Esc back"))
 	return out.String()
+}
+
+func (s *wifiScreen) renderWiFiHeader() string {
+	radio := errorStyle.Render("Radio Off")
+	if s.wirelessEnabled {
+		radio = goodStyle.Render("Radio On")
+	}
+	return titleStyle.Render("Wi-Fi · "+emptyFallback(s.device.Interface, "adapter")) + "  " + radio
+}
+
+func (s *wifiScreen) renderSavedEntry(width int, selected bool) string {
+	style := cardStyle
+	marker := "  "
+	if selected {
+		style = selectedCardStyle
+		marker = "› "
+	}
+	line := fmt.Sprintf(
+		"%s%s\n    %d saved profiles · Enter to manage",
+		marker,
+		titleStyle.Render("Saved networks"),
+		len(s.savedItems),
+	)
+	return style.Width(cardContentWidth(width)).Render(line)
 }
 
 func (s *wifiScreen) renderItem(width int, item wifiListItem, selected bool) string {
@@ -606,7 +786,7 @@ func (s *wifiScreen) renderItem(width int, item wifiListItem, selected bool) str
 
 	name := s.itemName(item)
 	status := ""
-	if item.network != nil && item.network.Active {
+	if s.itemActive(item) {
 		status = goodStyle.Render("Connected")
 	} else if item.profile != nil {
 		status = mutedStyle.Render("Saved")
@@ -628,9 +808,20 @@ func (s *wifiScreen) renderItem(width int, item wifiListItem, selected bool) str
 	return style.Width(cardContentWidth(width)).Render(line)
 }
 
+func (s *wifiScreen) renderMenuModal(width int) string {
+	var out strings.Builder
+	out.WriteString(s.renderWiFiHeader())
+	out.WriteString("\n\n")
+	out.WriteString(titleStyle.Render("Actions · " + s.menu.title))
+	out.WriteString("\n\n")
+	out.WriteString(s.renderMenu(width))
+	out.WriteString("\n\n")
+	out.WriteString(helpStyle.Render("↑/↓ choose   Enter select   Esc cancel"))
+	return out.String()
+}
+
 func (s *wifiScreen) renderMenu(width int) string {
 	var lines []string
-	lines = append(lines, titleStyle.Render(s.menu.title))
 	for index, option := range s.menu.options {
 		marker := "  "
 		if index == s.menu.cursor {
@@ -639,6 +830,75 @@ func (s *wifiScreen) renderMenu(width int) string {
 		lines = append(lines, marker+option.label)
 	}
 	return selectedCardStyle.Width(cardContentWidth(width)).Render(strings.Join(lines, "\n"))
+}
+
+func (s *wifiScreen) renderForgetConfirmation(width int) string {
+	var out strings.Builder
+	out.WriteString(s.renderWiFiHeader())
+	out.WriteString("\n\n")
+	out.WriteString(titleStyle.Render("Forget saved network"))
+	out.WriteString("\n\n")
+	out.WriteString(warningStyle.Render("Forget saved profile " + s.confirmForget.ID + "?"))
+	out.WriteString("\n\n")
+	out.WriteString(helpStyle.Render("Enter / y forget   Esc / n cancel"))
+	return selectedCardStyle.Width(cardContentWidth(width)).Render(out.String())
+}
+
+func (s *wifiScreen) renderWiFiMessages(out *strings.Builder) {
+	if s.err != nil {
+		out.WriteString("\n" + errorStyle.Render(s.err.Error()))
+	}
+	if s.notice != "" {
+		out.WriteString("\n" + goodStyle.Render(s.notice))
+	}
+	if s.busy {
+		out.WriteString("\n" + warningStyle.Render("Working..."))
+	}
+}
+
+func (s *wifiScreen) mainVisibleRange(height int) (int, int) {
+	return wifiVisibleRange(s.mainItemCount(), s.cursor, height)
+}
+
+func (s *wifiScreen) savedVisibleRange(height int) (int, int) {
+	return wifiVisibleRange(len(s.savedItems), s.savedCursor, height)
+}
+
+func wifiVisibleRange(total, cursor, height int) (int, int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	maxVisible := (height - 8) / 4
+	if maxVisible < 1 {
+		maxVisible = 1
+	}
+	if maxVisible > total {
+		maxVisible = total
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= total {
+		cursor = total - 1
+	}
+	start := cursor - maxVisible/2
+	if start < 0 {
+		start = 0
+	}
+	if start+maxVisible > total {
+		start = total - maxVisible
+	}
+	return start, start + maxVisible
+}
+
+func (s *wifiScreen) itemActive(item wifiListItem) bool {
+	if item.network != nil && item.network.Active {
+		return true
+	}
+	return item.profile != nil &&
+		s.device.ActiveConnection != nil &&
+		item.profile.UUID != "" &&
+		item.profile.UUID == s.device.ActiveConnection.UUID
 }
 
 func (s *wifiScreen) itemName(item wifiListItem) string {
