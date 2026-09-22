@@ -90,6 +90,7 @@ func newEthernetForm(profile model.EthernetProfile) *ethernetForm {
 
 func newFormInput(placeholder string) textinput.Model {
 	input := textinput.New()
+	applyTextInputTheme(&input)
 	input.Prompt = ""
 	input.Placeholder = placeholder
 	input.CharLimit = 256

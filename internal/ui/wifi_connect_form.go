@@ -93,11 +93,8 @@ func newWiFiConnectFormBase(devicePath string) *wifiConnectForm {
 	ssid := newFormInput("Network name")
 	ssid.CharLimit = 32
 
-	password := textinput.New()
-	password.Prompt = ""
-	password.Placeholder = "Wi-Fi password"
+	password := newFormInput("Wi-Fi password")
 	password.CharLimit = 128
-	password.SetWidth(44)
 	password.EchoMode = textinput.EchoPassword
 	password.EchoCharacter = '•'
 

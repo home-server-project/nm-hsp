@@ -69,8 +69,14 @@ type Model struct {
 	notice       string
 }
 
-// New creates the TUI model.
+// New creates the TUI model using the built-in dark-terminal theme.
 func New(source NetworkSource) Model {
+	return NewWithTheme(source, ThemeDark)
+}
+
+// NewWithTheme creates the TUI model using the selected built-in terminal theme.
+func NewWithTheme(source NetworkSource, mode ThemeMode) Model {
+	ApplyTheme(mode)
 	return Model{
 		source:  source,
 		loading: true,

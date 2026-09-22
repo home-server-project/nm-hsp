@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/home-server-project/nm-hsp/internal/model"
 	"github.com/home-server-project/nm-hsp/internal/networkmanager"
+	"github.com/home-server-project/nm-hsp/internal/preferences"
 	"github.com/home-server-project/nm-hsp/internal/ui"
 	"github.com/home-server-project/nm-hsp/internal/vpn"
 )
@@ -38,6 +39,37 @@ func main() {
 		exitf("usage: nm-hsp [--snapshot]")
 	}
 
+	snapshotMode := len(os.Args) == 2
+	themeMode := ui.ThemeDark
+
+	if !snapshotMode {
+		savedTheme, found, _ := preferences.LoadTerminalTheme()
+		if found {
+			themeMode = ui.ThemeMode(savedTheme)
+		} else {
+			program := tea.NewProgram(ui.NewThemeChooser())
+			result, err := program.Run()
+			if err != nil {
+				exitf("nm-hsp: theme chooser: %v", err)
+			}
+
+			choice, ok := result.(ui.ThemeChooserModel)
+			if !ok {
+				exitf("nm-hsp: theme chooser returned unexpected model")
+			}
+			if !choice.Confirmed() {
+				return
+			}
+
+			themeMode = choice.SelectedTheme()
+			if choice.RememberChoice() {
+				if err := preferences.SaveTerminalTheme(string(themeMode)); err != nil {
+					exitf("nm-hsp: save terminal theme: %v", err)
+				}
+			}
+		}
+	}
+
 	startupCtx, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
 	client, err := networkmanager.NewSystem(startupCtx)
 	cancelStartup()
@@ -51,7 +83,7 @@ func main() {
 		vpn:    vpn.NewManager(),
 	}
 
-	if len(os.Args) == 2 {
+	if snapshotMode {
 		snapshotCtx, cancelSnapshot := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelSnapshot()
 
@@ -68,7 +100,7 @@ func main() {
 		return
 	}
 
-	program := tea.NewProgram(ui.New(source))
+	program := tea.NewProgram(ui.NewWithTheme(source, themeMode))
 	if _, err := program.Run(); err != nil {
 		exitf("nm-hsp: %v", err)
 	}
