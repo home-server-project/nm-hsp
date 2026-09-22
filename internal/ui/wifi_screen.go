@@ -125,19 +125,19 @@ func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 		s.busy = false
 		s.err = nil
 		s.rebuildItems()
-		return nil
+		return false, nil
 
 	case wifiRefreshErrMsg:
 		s.loading = false
 		s.busy = false
 		s.err = msg.err
-		return nil
+		return false, nil
 
 	case wifiOperationMsg:
 		s.busy = false
 		if msg.err != nil {
 			s.routeOperationError(msg)
-			return nil
+			return false, nil
 		}
 		s.finishOperation(msg)
 		s.loading = true
@@ -148,7 +148,7 @@ func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 			if msg.String() == "esc" && !s.busy {
 				return true, nil
 			}
-			return nil
+			return false, nil
 		}
 
 		if s.connectForm != nil {
@@ -183,7 +183,7 @@ func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 				s.savedOpen = true
 				s.err = nil
 				s.notice = ""
-				return nil
+				return false, nil
 			}
 			if item, ok := s.mainSelectedItem(); ok {
 				s.openActionMenu(item)
@@ -193,7 +193,7 @@ func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 				s.loading = true
 				s.notice = ""
 				s.err = nil
-				return s.refresh(true)
+				return false, s.refresh(true)
 			}
 		case "h":
 			if s.wirelessEnabled {
@@ -205,7 +205,7 @@ func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 		}
 	}
 
-	return nil
+	return false, nil
 }
 
 func (s *wifiScreen) updateSavedNetworks(msg tea.KeyPressMsg) tea.Cmd {
