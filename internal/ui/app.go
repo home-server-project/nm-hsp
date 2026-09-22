@@ -60,6 +60,7 @@ type Model struct {
 	formLoading  bool
 	formSaving   bool
 	form         *ethernetForm
+	formBackMenu *ethernetActionMenu
 	ethernetMenu *ethernetActionMenu
 	wifi         *wifiScreen
 	diagnostics  *diagnosticsScreen
@@ -92,9 +93,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.diagnostics != nil {
 		closeScreen, cmd := m.diagnostics.update(msg)
 		if closeScreen {
+			jumpWiFi := m.diagnostics.jumpWiFi
+			jumpSnapshot := m.diagnostics.snapshot
 			m.diagnostics = nil
-			m.loading = true
 			m.err = nil
+			if jumpWiFi != nil {
+				m.snapshot = jumpSnapshot
+				m.loading = false
+				m.wifi = newWiFiScreen(m.source, *jumpWiFi, jumpSnapshot)
+				return m, m.wifi.init()
+			}
+			m.loading = true
 			return m, m.loadSnapshot()
 		}
 		return m, cmd
@@ -167,10 +176,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			action, cmd := m.form.handleKey(msg)
+			if msg.String() == "q" {
+				action = formActionCancel
+				cmd = nil
+			}
 			switch action {
 			case formActionCancel:
 				m.form = nil
 				m.err = nil
+				if m.formBackMenu != nil {
+					m.ethernetMenu = m.formBackMenu
+					m.formBackMenu = nil
+				}
 				return m, nil
 
 			case formActionSave:
@@ -476,22 +493,30 @@ func (m Model) renderStatus(width int) string {
 		status = errorStyle.Render("No connectivity")
 	}
 
-	networkingState := warningStyle.Render("OFF")
-	if m.snapshot.NetworkingEnabled {
-		networkingState = goodStyle.Render("ON")
-	}
-	wirelessState := warningStyle.Render("OFF")
-	if m.snapshot.WirelessEnabled {
-		wirelessState = goodStyle.Render("ON")
+	second := ""
+	if !m.snapshot.NetworkingEnabled {
+		second = mutedStyle.Render("Networking ") + errorStyle.Render("OFF")
+	} else {
+		ethernetConnected := hasActivatedDevice(m.snapshot.Devices, model.DeviceKindEthernet)
+		ethernetState := warningStyle.Render("disconnected")
+		if ethernetConnected {
+			ethernetState = goodStyle.Render("connected")
+		}
+		second = mutedStyle.Render("Ethernet ") + ethernetState
 	}
 
-	networking := mutedStyle.Render("Networking ") + networkingState
-	wireless := mutedStyle.Render("Wi-Fi ") + wirelessState
+	wifiState := warningStyle.Render("disconnected")
+	if !m.snapshot.WirelessEnabled {
+		wifiState = errorStyle.Render("OFF")
+	} else if hasActivatedDevice(m.snapshot.Devices, model.DeviceKindWiFi) {
+		wifiState = goodStyle.Render("connected")
+	}
+	wireless := mutedStyle.Render("Wi-Fi ") + wifiState
 	version := mutedStyle.Render("NetworkManager " + emptyFallback(m.snapshot.Version, "unknown"))
 	line := fmt.Sprintf(
 		"%s   %s   %s   %s",
 		status,
-		networking,
+		second,
 		wireless,
 		version,
 	)
@@ -499,6 +524,15 @@ func (m Model) renderStatus(width int) string {
 	return cardStyle.
 		Width(cardContentWidth(width)).
 		Render(line)
+}
+
+func hasActivatedDevice(devices []model.Device, kind model.DeviceKind) bool {
+	for _, device := range devices {
+		if device.Kind == kind && device.State == 100 && device.ActiveConnection != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) renderDevices(width int) string {

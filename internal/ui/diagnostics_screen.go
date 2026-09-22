@@ -19,7 +19,8 @@ type diagnosticsSource interface {
 }
 
 type diagnosticsRefreshMsg struct {
-	report model.DiagnosticReport
+	report   model.DiagnosticReport
+	snapshot model.Snapshot
 }
 
 type diagnosticsRefreshErrMsg struct {
@@ -35,6 +36,8 @@ type diagnosticsRepairMsg struct {
 type diagnosticsScreen struct {
 	source   diagnosticsSource
 	report   model.DiagnosticReport
+	snapshot model.Snapshot
+	jumpWiFi *model.Device
 	cursor   int
 	loading  bool
 	applying bool
@@ -58,6 +61,7 @@ func (s *diagnosticsScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 	switch msg := msg.(type) {
 	case diagnosticsRefreshMsg:
 		s.report = msg.report
+		s.snapshot = msg.snapshot
 		s.loading = false
 		s.err = nil
 		s.clampCursor()
@@ -117,9 +121,17 @@ func (s *diagnosticsScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 				s.cursor++
 			}
 		case "enter":
-			if check := s.selectedCheck(); check != nil && check.Repair != nil {
-				action := *check.Repair
-				s.confirm = &action
+			if check := s.selectedCheck(); check != nil {
+				if check.Repair != nil {
+					action := *check.Repair
+					s.confirm = &action
+				} else if diagnosticCheckOpensWiFi(*check) {
+					if device, ok := findDevice(s.snapshot.Devices, check.DevicePath, check.Interface); ok {
+						copy := device
+						s.jumpWiFi = &copy
+						return true, nil
+					}
+				}
 			}
 		case "r":
 			s.loading = true
@@ -148,7 +160,7 @@ func (s *diagnosticsScreen) refresh() tea.Cmd {
 			probeCancel()
 		}
 
-		return diagnosticsRefreshMsg{report: diag.Analyze(snapshot, probe)}
+		return diagnosticsRefreshMsg{report: diag.Analyze(snapshot, probe), snapshot: snapshot}
 	}
 }
 
@@ -184,7 +196,7 @@ func (s *diagnosticsScreen) refreshAfterRepair(action model.RepairAction) tea.Cm
 					probe = diag.ProbeDNS(probeCtx)
 					probeCancel()
 				}
-				return diagnosticsRefreshMsg{report: diag.Analyze(snapshot, probe)}
+				return diagnosticsRefreshMsg{report: diag.Analyze(snapshot, probe), snapshot: snapshot}
 			}
 			select {
 			case <-ctx.Done():
@@ -327,8 +339,14 @@ func (s *diagnosticsScreen) renderCheck(width int, check model.DiagnosticCheck, 
 	body := header + "\n    " + check.Detail
 	if check.Repair != nil {
 		body += "\n    " + warningStyle.Render("Repair available: "+check.Repair.Label+" — press Enter to review")
+	} else if diagnosticCheckOpensWiFi(check) {
+		body += "\n    " + warningStyle.Render("Press Enter to open Wi-Fi nearby networks")
 	}
 	return style.Width(cardContentWidth(width)).Render(body)
+}
+
+func diagnosticCheckOpensWiFi(check model.DiagnosticCheck) bool {
+	return check.ID == "wifi-not-connected" || check.ID == "wifi-activation-failed"
 }
 
 func (s *diagnosticsScreen) renderConfirmation(width int) string {

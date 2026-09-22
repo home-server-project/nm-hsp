@@ -182,3 +182,54 @@ func TestDiagnosticsSettleWaitsForDHCPAddress(t *testing.T) {
 		t.Fatal("settle should finish once IPv4 is present")
 	}
 }
+
+func TestDiagnosticsWiFiNotConnectedOpensWiFiManager(t *testing.T) {
+	device := model.Device{
+		ObjectPath: "/device/wifi",
+		Interface:  "wlan0",
+		Kind:       model.DeviceKindWiFi,
+		State:      30,
+	}
+	screen := &diagnosticsScreen{
+		snapshot: model.Snapshot{Devices: []model.Device{device}},
+		report: model.DiagnosticReport{
+			Checks: []model.DiagnosticCheck{
+				{
+					ID:         "wifi-not-connected",
+					Interface:  "wlan0",
+					DevicePath: "/device/wifi",
+					Status:     model.DiagnosticInfo,
+					Title:      "Wi-Fi is not connected",
+				},
+			},
+		},
+	}
+
+	closeScreen, cmd := screen.update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if !closeScreen || cmd != nil {
+		t.Fatal("Wi-Fi not-connected diagnostic should request navigation")
+	}
+	if screen.jumpWiFi == nil || screen.jumpWiFi.Interface != "wlan0" {
+		t.Fatalf("Wi-Fi navigation target = %#v", screen.jumpWiFi)
+	}
+}
+
+func TestDiagnosticsWiFiNavigationHintRenders(t *testing.T) {
+	screen := &diagnosticsScreen{
+		report: model.DiagnosticReport{
+			Checks: []model.DiagnosticCheck{
+				{
+					ID:        "wifi-not-connected",
+					Interface: "wlan0",
+					Status:    model.DiagnosticInfo,
+					Title:     "Wi-Fi is not connected",
+					Detail:    "The adapter is available but has no active Wi-Fi connection.",
+				},
+			},
+		},
+	}
+	output := screen.render(90, 24)
+	if !strings.Contains(output, "Press Enter to open Wi-Fi nearby networks") {
+		t.Fatalf("diagnostics navigation hint missing: %q", output)
+	}
+}

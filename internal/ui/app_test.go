@@ -458,3 +458,89 @@ func TestDisconnectedEthernetMenuOffersConnect(t *testing.T) {
 		t.Fatalf("disconnected Ethernet first action = %q, want Connect", m.ethernetMenu.options[0].label)
 	}
 }
+
+func TestStatusLineUsesActualDeviceConnectionState(t *testing.T) {
+	snapshot := sampleSnapshot()
+	snapshot.Devices[1].State = 30
+	snapshot.Devices[1].ActiveConnection = nil
+
+	m := New(&fakeSource{snapshot: snapshot})
+	m.snapshot = snapshot
+	m.loading = false
+	m.width = 100
+
+	output := m.renderStatus(98)
+	for _, want := range []string{"Ethernet ", "connected", "Wi-Fi ", "disconnected"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("status line missing %q: %q", want, output)
+		}
+	}
+}
+
+func TestStatusLineShowsWiFiOffWhenRadioDisabled(t *testing.T) {
+	snapshot := sampleSnapshot()
+	snapshot.WirelessEnabled = false
+	m := New(&fakeSource{snapshot: snapshot})
+	m.snapshot = snapshot
+
+	output := m.renderStatus(98)
+	if !strings.Contains(output, "Wi-Fi ") || !strings.Contains(output, "OFF") {
+		t.Fatalf("Wi-Fi OFF status missing: %q", output)
+	}
+}
+
+func TestEthernetFormCancelReturnsToActions(t *testing.T) {
+	snapshot := sampleSnapshot()
+	source := &fakeSource{
+		snapshot: snapshot,
+		ethernetProfile: model.EthernetProfile{
+			ProfilePath:   "/org/freedesktop/NetworkManager/Settings/1",
+			DevicePath:    "/org/freedesktop/NetworkManager/Devices/2",
+			ID:            "Wired connection 1",
+			InterfaceName: "enp2s0",
+			Autoconnect:   true,
+			IPv4:          model.IPProfileConfig{Method: model.IPMethodAuto},
+			IPv6:          model.IPProfileConfig{Method: model.IPMethodAuto},
+		},
+	}
+	m := New(source)
+	m.snapshot = snapshot
+	m.loading = false
+
+	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = updated.(Model)
+	m.ethernetMenu.cursor = 1
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = updated.(Model)
+	updated, _ = m.Update(cmd())
+	m = updated.(Model)
+	if m.form == nil {
+		t.Fatal("Ethernet form did not open")
+	}
+
+	updated, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	m = updated.(Model)
+	if m.form != nil || m.ethernetMenu == nil {
+		t.Fatal("Esc from Ethernet settings should return to Ethernet Actions")
+	}
+}
+
+func TestDiagnosticsJumpOpensWiFiManagerFromDashboard(t *testing.T) {
+	snapshot := sampleSnapshot()
+	source := &fakeSource{snapshot: snapshot}
+	m := New(source)
+	m.snapshot = snapshot
+	m.loading = false
+	m.diagnostics = &diagnosticsScreen{
+		source:   source,
+		snapshot: snapshot,
+		jumpWiFi: &snapshot.Devices[1],
+	}
+
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = updated.(Model)
+	_ = cmd
+	if m.wifi == nil || m.wifi.device.Interface != "wlan0" {
+		t.Fatalf("diagnostics jump did not open Wi-Fi manager: %#v", m.wifi)
+	}
+}

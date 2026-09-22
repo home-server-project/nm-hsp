@@ -98,6 +98,8 @@ func (m *Model) updateEthernetMenu(msg tea.Msg) (bool, tea.Cmd) {
 				return true, nil
 			case ethernetMenuEdit:
 				device := m.ethernetMenu.device
+				back := *m.ethernetMenu
+				m.formBackMenu = &back
 				m.ethernetMenu = nil
 				return false, m.openEthernetForm(device)
 			case ethernetMenuConnect:
