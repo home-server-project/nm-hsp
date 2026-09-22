@@ -59,12 +59,12 @@ func TestThemePalettesAreDistinctAndComplete(t *testing.T) {
 		t.Fatal("light and dark palettes must differ")
 	}
 	for name, value := range map[string]string{
-		"dark accent":  dark.accent,
-		"dark good":    dark.good,
-		"dark warning": dark.warning,
-		"dark error":   dark.err,
-		"dark muted":   dark.muted,
-		"dark surface": dark.surface,
+		"dark accent":   dark.accent,
+		"dark good":     dark.good,
+		"dark warning":  dark.warning,
+		"dark error":    dark.err,
+		"dark muted":    dark.muted,
+		"dark surface":  dark.surface,
 		"light accent":  light.accent,
 		"light good":    light.good,
 		"light warning": light.warning,
