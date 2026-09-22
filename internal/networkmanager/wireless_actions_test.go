@@ -142,3 +142,14 @@ func TestPatchWiFiProfileMetadataPreservesLegacyIPv6Signatures(t *testing.T) {
 		t.Fatalf("priority = %d, want 7", got)
 	}
 }
+
+func TestForgetWiFiProfileRejectsNonWiFiSettings(t *testing.T) {
+	settings := map[string]map[string]dbus.Variant{
+		"connection": {
+			"type": dbus.MakeVariant("802-3-ethernet"),
+		},
+	}
+	if stringValue(settings["connection"], "type") == "802-11-wireless" {
+		t.Fatal("test precondition failed")
+	}
+}

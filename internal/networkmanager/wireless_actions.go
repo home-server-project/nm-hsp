@@ -61,33 +61,74 @@ func (c *Client) ActivateWiFiProfile(ctx context.Context, profilePath, devicePat
 	return nil
 }
 
-// DisconnectWiFi deactivates the selected active connection.
-func (c *Client) DisconnectWiFi(ctx context.Context, activeConnectionPath string) error {
-	active := dbus.ObjectPath(activeConnectionPath)
-	if !active.IsValid() || active == "/" {
-		return fmt.Errorf("invalid active connection path %q", activeConnectionPath)
-	}
-	if err := c.call(
-		ctx,
-		managerPath,
-		managerInterface+".DeactivateConnection",
-		active,
-	).Err; err != nil {
-		return fmt.Errorf("disconnect Wi-Fi: %w", err)
+// DisconnectWiFi disconnects the selected Wi-Fi device directly.
+func (c *Client) DisconnectWiFi(ctx context.Context, devicePath string) error {
+	if err := c.disconnectDevice(ctx, devicePath, "Wi-Fi"); err != nil {
+		return err
 	}
 	return nil
 }
 
-// ForgetWiFiProfile deletes a saved NetworkManager Wi-Fi profile.
-func (c *Client) ForgetWiFiProfile(ctx context.Context, profilePath string) error {
+// ForgetWiFiProfile deletes a saved NetworkManager Wi-Fi profile. If the
+// selected device is currently using that exact profile, it is disconnected
+// first so the user-visible "Forget" action is complete and deterministic.
+func (c *Client) ForgetWiFiProfile(ctx context.Context, profilePath, devicePath string) error {
 	path := dbus.ObjectPath(profilePath)
 	if !path.IsValid() || path == "/" {
 		return fmt.Errorf("invalid Wi-Fi profile path %q", profilePath)
 	}
+	settings, err := c.connectionSettings(ctx, path)
+	if err != nil {
+		return err
+	}
+	if stringValue(settings["connection"], "type") != "802-11-wireless" {
+		return fmt.Errorf("profile is not a Wi-Fi connection")
+	}
+
+	device := dbus.ObjectPath(devicePath)
+	if device.IsValid() && device != "/" {
+		props, err := c.getAll(ctx, device, deviceInterface)
+		if err != nil {
+			return fmt.Errorf("read Wi-Fi device before forget: %w", err)
+		}
+		if activePath := objectPathValue(props, "ActiveConnection"); validObjectPath(activePath) {
+			activeProps, err := c.getAll(ctx, activePath, activeInterface)
+			if err != nil {
+				return fmt.Errorf("read active Wi-Fi connection before forget: %w", err)
+			}
+			if objectPathValue(activeProps, "Connection") == path {
+				if err := c.disconnectDevice(ctx, devicePath, "Wi-Fi"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	if err := c.call(ctx, path, connectionInterface+".Delete").Err; err != nil {
 		return fmt.Errorf("forget Wi-Fi profile: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) disconnectDevice(ctx context.Context, devicePath, label string) error {
+	device := dbus.ObjectPath(devicePath)
+	if !device.IsValid() || device == "/" {
+		return fmt.Errorf("invalid %s device path %q", label, devicePath)
+	}
+	if err := c.call(ctx, device, deviceInterface+".Disconnect").Err; err != nil {
+		return fmt.Errorf("disconnect %s: %w", label, err)
+	}
+	return nil
+}
+
+// DisconnectEthernet disconnects the selected Ethernet device.
+func (c *Client) DisconnectEthernet(ctx context.Context, devicePath string) error {
+	return c.disconnectDevice(ctx, devicePath, "Ethernet")
+}
+
+// ActivateEthernetProfile activates an existing saved Ethernet profile.
+func (c *Client) ActivateEthernetProfile(ctx context.Context, profilePath, devicePath string) error {
+	return c.activateSavedProfile(ctx, profilePath, devicePath)
 }
 
 // UpdateWiFiProfileMetadata updates only autoconnect metadata on an existing
