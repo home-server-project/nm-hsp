@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/home-server-project/nm-hsp/internal/networkmanager"
 	"github.com/home-server-project/nm-hsp/internal/ui"
+	"github.com/home-server-project/nm-hsp/internal/vpn"
 )
 
 func main() {
@@ -38,6 +39,7 @@ func main() {
 		if err != nil {
 			exitf("nm-hsp: %v", err)
 		}
+		snapshot.VPN = vpn.NewManager().Snapshot(snapshotCtx)
 
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
