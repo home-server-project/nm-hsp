@@ -21,7 +21,7 @@ type wifiSource interface {
 	SetWirelessEnabled(context.Context, bool) error
 	ActivateWiFiProfile(context.Context, string, string, string) error
 	DisconnectWiFi(context.Context, string) error
-	ForgetWiFiProfile(context.Context, string) error
+	ForgetWiFiProfile(context.Context, string, string) error
 	UpdateWiFiProfileMetadata(context.Context, model.WiFiProfileUpdate) error
 	ConnectWiFi(context.Context, model.WiFiConnectRequest) (string, string, error)
 }
@@ -319,8 +319,8 @@ func (s *wifiScreen) runMenuAction(action wifiMenuAction, item wifiListItem) tea
 	case wifiMenuBack:
 		return nil
 	case wifiMenuDisconnect:
-		if s.device.ActiveConnectionPath == "" {
-			s.err = fmt.Errorf("no active Wi-Fi connection is available to disconnect")
+		if s.device.ObjectPath == "" {
+			s.err = fmt.Errorf("no Wi-Fi device is available to disconnect")
 			return nil
 		}
 		s.busy = true
@@ -373,9 +373,7 @@ func (s *wifiScreen) openActionMenu(item wifiListItem) {
 	}
 	if item.profile != nil {
 		options = append(options, wifiMenuOption{label: "Edit saved profile", action: wifiMenuEdit})
-		if !active {
-			options = append(options, wifiMenuOption{label: "Forget saved profile", action: wifiMenuForget})
-		}
+		options = append(options, wifiMenuOption{label: "Forget saved profile", action: wifiMenuForget})
 	}
 	options = append(options, wifiMenuOption{label: "Back", action: wifiMenuBack})
 
@@ -451,7 +449,7 @@ func (s *wifiScreen) disconnect() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if err := s.source.DisconnectWiFi(ctx, s.device.ActiveConnectionPath); err != nil {
+		if err := s.source.DisconnectWiFi(ctx, s.device.ObjectPath); err != nil {
 			return wifiOperationMsg{kind: wifiOperationGeneric, err: err}
 		}
 		return wifiOperationMsg{kind: wifiOperationGeneric, notice: "Wi-Fi disconnected."}
@@ -462,7 +460,7 @@ func (s *wifiScreen) forget(profile model.ConnectionProfile) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := s.source.ForgetWiFiProfile(ctx, profile.ObjectPath); err != nil {
+		if err := s.source.ForgetWiFiProfile(ctx, profile.ObjectPath, s.device.ObjectPath); err != nil {
 			return wifiOperationMsg{kind: wifiOperationGeneric, err: err}
 		}
 		return wifiOperationMsg{kind: wifiOperationGeneric, notice: "Forgot saved Wi-Fi profile " + profile.ID + "."}
@@ -838,7 +836,11 @@ func (s *wifiScreen) renderForgetConfirmation(width int) string {
 	out.WriteString("\n\n")
 	out.WriteString(titleStyle.Render("Forget saved network"))
 	out.WriteString("\n\n")
-	out.WriteString(warningStyle.Render("Forget saved profile " + s.confirmForget.ID + "?"))
+	message := "Forget saved profile " + s.confirmForget.ID + "?"
+	if s.device.ActiveConnection != nil && s.device.ActiveConnection.UUID == s.confirmForget.UUID {
+		message = "Disconnect and forget saved profile " + s.confirmForget.ID + "?"
+	}
+	out.WriteString(warningStyle.Render(message))
 	out.WriteString("\n\n")
 	out.WriteString(helpStyle.Render("Enter / y forget   Esc / n cancel"))
 	return selectedCardStyle.Width(cardContentWidth(width)).Render(out.String())

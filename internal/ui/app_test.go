@@ -64,7 +64,7 @@ func (f *fakeSource) DisconnectWiFi(context.Context, string) error {
 	return nil
 }
 
-func (f *fakeSource) ForgetWiFiProfile(context.Context, string) error {
+func (f *fakeSource) ForgetWiFiProfile(context.Context, string, string) error {
 	return nil
 }
 

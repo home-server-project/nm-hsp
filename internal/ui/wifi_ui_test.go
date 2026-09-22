@@ -352,3 +352,52 @@ func TestWiFiScrollingKeepsSelectedEntryVisible(t *testing.T) {
 		t.Fatalf("selected network %q should stay visible in a short terminal", selected)
 	}
 }
+
+func TestConnectedSavedWiFiOffersForget(t *testing.T) {
+	profile := &model.ConnectionProfile{
+		ObjectPath: "/profile",
+		ID:         "Home",
+		UUID:       "wifi-uuid",
+		SSID:       "Home",
+		Type:       "802-11-wireless",
+	}
+	screen := &wifiScreen{
+		device: model.Device{
+			ObjectPath: "/device",
+			Interface:  "wlan0",
+			ActiveConnection: &model.ConnectionProfile{
+				UUID: "wifi-uuid",
+			},
+		},
+	}
+	screen.openActionMenu(wifiListItem{
+		network: &model.WiFiNetwork{SSID: "Home", Active: true},
+		profile: profile,
+	})
+
+	var labels []string
+	for _, option := range screen.menu.options {
+		labels = append(labels, option.label)
+	}
+	joined := strings.Join(labels, "|")
+	if !strings.Contains(joined, "Disconnect") || !strings.Contains(joined, "Forget saved profile") {
+		t.Fatalf("connected saved Wi-Fi actions = %s", joined)
+	}
+}
+
+func TestConnectedWiFiForgetConfirmationExplainsDisconnect(t *testing.T) {
+	profile := &model.ConnectionProfile{
+		ID:   "Home",
+		UUID: "wifi-uuid",
+	}
+	screen := &wifiScreen{
+		device: model.Device{
+			ActiveConnection: &model.ConnectionProfile{UUID: "wifi-uuid"},
+		},
+		confirmForget: profile,
+	}
+	output := screen.renderForgetConfirmation(90)
+	if !strings.Contains(output, "Disconnect and forget saved profile Home?") {
+		t.Fatalf("connected forget confirmation = %q", output)
+	}
+}
