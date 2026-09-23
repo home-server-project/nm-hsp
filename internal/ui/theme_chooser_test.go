@@ -19,6 +19,9 @@ func TestThemeChooserSelectsLightAndRemember(t *testing.T) {
 	if m.SelectedTheme() != ThemeLight {
 		t.Fatalf("selected theme = %q, want light", m.SelectedTheme())
 	}
+	if currentTheme != ThemeLight {
+		t.Fatalf("live preview theme = %q, want light", currentTheme)
+	}
 
 	updated, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m = updated.(ThemeChooserModel)
@@ -33,7 +36,7 @@ func TestThemeChooserSelectsLightAndRemember(t *testing.T) {
 	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m = updated.(ThemeChooserModel)
 	if !m.Confirmed() || cmd == nil {
-		t.Fatal("OK should confirm and quit")
+		t.Fatal("Continue should confirm and quit")
 	}
 }
 
@@ -44,7 +47,7 @@ func TestThemeChooserRenderUsesPlainChoiceMarkers(t *testing.T) {
 		"Dark terminal",
 		"Light terminal",
 		"Don't show this again",
-		"[ OK ]",
+		"Continue",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("chooser missing %q", want)
