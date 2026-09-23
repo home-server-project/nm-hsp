@@ -263,7 +263,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			devices := m.visibleDevices()
 			if m.cursor == len(devices) {
 				m.vpn = newPrivateAccessScreen(m.source, m.snapshot)
-				return m, nil
+				return m, m.vpn.init()
 			}
 			if m.cursor == len(devices)+1 {
 				m.diagnostics = newDiagnosticsScreen(m.source)
