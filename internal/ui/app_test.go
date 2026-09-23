@@ -500,8 +500,8 @@ func TestEnterOnPrivateAccessCardOpensScreen(t *testing.T) {
 
 	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m = updated.(Model)
-	if cmd != nil || m.vpn == nil {
-		t.Fatal("Enter on Private Access card should open the read-only provider screen")
+	if cmd == nil || m.vpn == nil {
+		t.Fatal("Enter on Private Access card should open the provider screen and schedule background refresh")
 	}
 	output := m.render()
 	for _, want := range []string{"Private Access", "Tailscale", "100.64.0.10", "NetBird"} {
