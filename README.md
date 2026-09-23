@@ -1,5 +1,11 @@
 # NetworkManager-HSP
 
+## Demo
+
+![nm-hsp terminal demo](docs/assets/nm-hsp-demo.gif)
+
+Animated walkthrough of the current terminal UI, including the dashboard, Wi-Fi view, VPN / Private Access, diagnostics, Ethernet settings, and Tailscale controls. IP addresses in the demo are sanitized.
+
 NetworkManager-HSP (`nm-hsp`) is a first-party Home Server Project terminal application for friendly NetworkManager configuration on headless and appliance-style Linux systems.
 
 The project is intended to provide a modern-friendly, keyboard-driven interface for ordinary Ethernet and Wi-Fi configuration.
