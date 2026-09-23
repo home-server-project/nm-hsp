@@ -157,6 +157,64 @@ func TestProviderActionUsesSelectedProvider(t *testing.T) {
 	}
 }
 
+func TestConnectActionWaitsForSettledProviderState(t *testing.T) {
+	initial := privateAccessTestSnapshot()
+	initial.VPN[0].Connected = false
+	initial.VPN[0].ConnectionState = "Stopped"
+
+	settled := privateAccessTestSnapshot()
+	source := &fakeSource{
+		snapshot: settled,
+		vpnActionResult: model.VPNActionResult{
+			Message: "connection requested",
+		},
+	}
+	screen := newPrivateAccessScreen(source, initial)
+	screen.selectedID = model.VPNProviderTailscale
+	screen.inActions = true
+	screen.actionCursor = 0
+
+	_, actionCmd := screen.update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	actionMsg := actionCmd()
+	_, settleCmd := screen.update(actionMsg)
+	if settleCmd == nil || !screen.acting || !screen.waitingConnection {
+		t.Fatal("connect should wait for provider state to settle")
+	}
+
+	output := screen.render(96, 30)
+	if !strings.Contains(output, "connecting") || !strings.Contains(output, "Waiting for connection") {
+		t.Fatalf("connecting state missing: %q", output)
+	}
+
+	_, next := screen.update(settleCmd())
+	if next != nil || screen.acting || screen.waitingConnection {
+		t.Fatal("settled provider state should finish the wait")
+	}
+	if !screen.snapshot.VPN[0].Connected {
+		t.Fatalf("settled snapshot not applied: %#v", screen.snapshot.VPN[0])
+	}
+}
+
+func TestProviderConnectionSettled(t *testing.T) {
+	base := privateAccessTestSnapshot()
+	base.VPN[0].Connected = false
+	base.VPN[0].ConnectionState = "Starting"
+	if providerConnectionSettled(base, model.VPNProviderTailscale) {
+		t.Fatal("Starting should not be settled")
+	}
+
+	base.VPN[0].ConnectionState = "NeedsLogin"
+	if !providerConnectionSettled(base, model.VPNProviderTailscale) {
+		t.Fatal("NeedsLogin should be settled")
+	}
+
+	base.VPN[0].ConnectionState = "Running"
+	base.VPN[0].Connected = true
+	if !providerConnectionSettled(base, model.VPNProviderTailscale) {
+		t.Fatal("connected should be settled")
+	}
+}
+
 func TestAuthenticationHandoffStaysInScreenMemory(t *testing.T) {
 	snapshot := privateAccessTestSnapshot()
 	source := &fakeSource{
