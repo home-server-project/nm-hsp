@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	tailscaleSocket   = "/var/run/tailscale/tailscaled.sock"
-	maxStatusResponse = 2 << 20
+	tailscaleSocket       = "/var/run/tailscale/tailscaled.sock"
+	tailscaleLocalAPIHost = "local-tailscaled.sock"
+	maxStatusResponse     = 2 << 20
 )
 
 var errStatusUnavailable = errors.New("provider status interface unavailable")
@@ -224,7 +225,7 @@ func queryUnixJSON(ctx context.Context, socketPath, method, requestPath string, 
 	if body != nil {
 		reader = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+requestPath, reader)
+	req, err := newUnixJSONRequest(ctx, method, requestPath, reader)
 	if err != nil {
 		return err
 	}
@@ -253,6 +254,20 @@ func queryUnixJSON(ctx context.Context, socketPath, method, requestPath string, 
 		return fmt.Errorf("decode local API response: %w", err)
 	}
 	return nil
+}
+
+func newUnixJSONRequest(ctx context.Context, method, requestPath string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(
+		ctx,
+		method,
+		"http://"+tailscaleLocalAPIHost+requestPath,
+		body,
+	)
+	if err != nil {
+		return nil, err
+	}
+	req.Host = tailscaleLocalAPIHost
+	return req, nil
 }
 
 func normalizeAddresses(values []string) []string {
