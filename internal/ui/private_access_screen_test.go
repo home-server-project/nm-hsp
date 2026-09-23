@@ -75,7 +75,6 @@ func TestEnterOpensConnectedProviderActions(t *testing.T) {
 	}
 }
 
-
 func TestNoStateRendersAsDisconnected(t *testing.T) {
 	snapshot := privateAccessTestSnapshot()
 	snapshot.VPN[0].Connected = false
