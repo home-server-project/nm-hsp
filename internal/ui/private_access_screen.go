@@ -537,7 +537,11 @@ func (s *privateAccessScreen) renderActions(width int) string {
 	}
 
 	if s.acting {
-		out.WriteString("\n  " + warningStyle.Render("Applying action..."))
+		message := "Applying action..."
+		if s.waitingConnection {
+			message = "Waiting for connection..."
+		}
+		out.WriteString("\n  " + warningStyle.Render(message))
 	}
 	s.renderMessages(&out)
 	out.WriteString("\n\n")
