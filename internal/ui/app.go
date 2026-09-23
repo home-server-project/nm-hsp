@@ -22,6 +22,8 @@ type NetworkSource interface {
 	ActivateEthernetProfile(context.Context, string, string) error
 	DisconnectEthernet(context.Context, string) error
 	ApplyRepair(context.Context, model.RepairAction) error
+	VPNAction(context.Context, model.VPNProviderID, model.VPNAction) (model.VPNActionResult, error)
+	VPNWaitAuthentication(context.Context, model.VPNProviderID, string) (model.VPNActionResult, error)
 }
 
 type snapshotMsg struct {

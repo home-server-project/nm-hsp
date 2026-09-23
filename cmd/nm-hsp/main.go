@@ -31,6 +31,22 @@ func (s *appSource) Snapshot(ctx context.Context) (model.Snapshot, error) {
 	return snapshot, nil
 }
 
+func (s *appSource) VPNAction(
+	ctx context.Context,
+	id model.VPNProviderID,
+	action model.VPNAction,
+) (model.VPNActionResult, error) {
+	return s.vpn.Action(ctx, id, action)
+}
+
+func (s *appSource) VPNWaitAuthentication(
+	ctx context.Context,
+	id model.VPNProviderID,
+	userCode string,
+) (model.VPNActionResult, error) {
+	return s.vpn.WaitAuthentication(ctx, id, userCode)
+}
+
 func main() {
 	if len(os.Args) > 2 {
 		exitf("usage: nm-hsp [--snapshot]")

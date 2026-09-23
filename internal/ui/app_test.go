@@ -24,6 +24,14 @@ type fakeSource struct {
 	appliedRepair        *model.RepairAction
 	ethernetActivated    bool
 	ethernetDisconnected bool
+	vpnActionResult      model.VPNActionResult
+	vpnActionErr         error
+	vpnActionProvider    model.VPNProviderID
+	vpnAction            model.VPNAction
+	vpnWaitResult        model.VPNActionResult
+	vpnWaitErr           error
+	vpnWaitProvider      model.VPNProviderID
+	vpnWaitCode          string
 }
 
 func (f *fakeSource) Snapshot(context.Context) (model.Snapshot, error) {
@@ -99,6 +107,26 @@ func (f *fakeSource) ApplyRepair(_ context.Context, action model.RepairAction) e
 	copy := action
 	f.appliedRepair = &copy
 	return nil
+}
+
+func (f *fakeSource) VPNAction(
+	_ context.Context,
+	id model.VPNProviderID,
+	action model.VPNAction,
+) (model.VPNActionResult, error) {
+	f.vpnActionProvider = id
+	f.vpnAction = action
+	return f.vpnActionResult, f.vpnActionErr
+}
+
+func (f *fakeSource) VPNWaitAuthentication(
+	_ context.Context,
+	id model.VPNProviderID,
+	userCode string,
+) (model.VPNActionResult, error) {
+	f.vpnWaitProvider = id
+	f.vpnWaitCode = userCode
+	return f.vpnWaitResult, f.vpnWaitErr
 }
 
 func boolPtr(value bool) *bool {

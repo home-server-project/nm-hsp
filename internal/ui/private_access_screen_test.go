@@ -10,7 +10,7 @@ import (
 	"github.com/home-server-project/nm-hsp/internal/model"
 )
 
-func TestPrivateAccessScreenRendersProviderState(t *testing.T) {
+func privateAccessTestSnapshot() model.Snapshot {
 	snapshot := sampleSnapshot()
 	snapshot.VPN = []model.VPNProviderState{
 		{
@@ -30,7 +30,11 @@ func TestPrivateAccessScreenRendersProviderState(t *testing.T) {
 			Installed: false,
 		},
 	}
+	return snapshot
+}
 
+func TestPrivateAccessScreenRendersProviderState(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
 	screen := newPrivateAccessScreen(&fakeSource{snapshot: snapshot}, snapshot)
 	output := screen.render(96, 30)
 	for _, want := range []string{
@@ -40,7 +44,7 @@ func TestPrivateAccessScreenRendersProviderState(t *testing.T) {
 		"100.64.0.10",
 		"NetBird",
 		"Not installed",
-		"r refresh",
+		"Enter actions",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("private access screen missing %q", want)
@@ -48,28 +52,151 @@ func TestPrivateAccessScreenRendersProviderState(t *testing.T) {
 	}
 }
 
+func TestEnterOpensConnectedProviderActions(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
+	screen := newPrivateAccessScreen(&fakeSource{snapshot: snapshot}, snapshot)
+
+	closeScreen, cmd := screen.update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if closeScreen || cmd != nil || !screen.inActions {
+		t.Fatal("Enter should open provider actions")
+	}
+	output := screen.render(96, 30)
+	for _, want := range []string{
+		"Disconnect (keep service enabled)",
+		"Reconnect",
+		"Disable service",
+		"Disconnect keeps the service enabled",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("action screen missing %q", want)
+		}
+	}
+}
+
+func TestDisconnectedProviderOffersConnect(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
+	snapshot.VPN[0].Connected = false
+	snapshot.VPN[0].ConnectionState = "Stopped"
+	screen := newPrivateAccessScreen(&fakeSource{snapshot: snapshot}, snapshot)
+	screen.selectedID = model.VPNProviderTailscale
+	screen.inActions = true
+
+	actions := screen.currentActions()
+	if len(actions) != 2 || actions[0].action != model.VPNActionConnect {
+		t.Fatalf("actions = %#v", actions)
+	}
+}
+
+func TestStoppedProviderOffersActivate(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
+	snapshot.VPN[0].Connected = false
+	snapshot.VPN[0].ServiceRunning = false
+	snapshot.VPN[0].ServiceState = "inactive"
+	screen := newPrivateAccessScreen(&fakeSource{snapshot: snapshot}, snapshot)
+	screen.selectedID = model.VPNProviderTailscale
+	screen.inActions = true
+
+	actions := screen.currentActions()
+	if len(actions) == 0 || actions[0].action != model.VPNActionActivate {
+		t.Fatalf("actions = %#v", actions)
+	}
+}
+
+func TestUninstalledProviderDoesNotOfferInstall(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
+	source := &fakeSource{snapshot: snapshot}
+	screen := newPrivateAccessScreen(source, snapshot)
+	screen.cursor = 1
+
+	closeScreen, cmd := screen.update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if closeScreen || cmd != nil || screen.inActions {
+		t.Fatal("uninstalled provider must not open lifecycle actions")
+	}
+	if !strings.Contains(screen.notice, "does not install") {
+		t.Fatalf("notice = %q", screen.notice)
+	}
+}
+
+func TestProviderActionUsesSelectedProvider(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
+	source := &fakeSource{
+		snapshot: snapshot,
+		vpnActionResult: model.VPNActionResult{
+			Message: "disconnected",
+		},
+	}
+	screen := newPrivateAccessScreen(source, snapshot)
+	screen.selectedID = model.VPNProviderTailscale
+	screen.inActions = true
+
+	closeScreen, cmd := screen.update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if closeScreen || cmd == nil || !screen.acting {
+		t.Fatal("Enter should run selected provider action")
+	}
+	screen.update(cmd())
+	if source.vpnActionProvider != model.VPNProviderTailscale ||
+		source.vpnAction != model.VPNActionDisconnect {
+		t.Fatalf("provider=%q action=%q", source.vpnActionProvider, source.vpnAction)
+	}
+}
+
+func TestAuthenticationHandoffStaysInScreenMemory(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
+	source := &fakeSource{
+		snapshot: snapshot,
+		vpnActionResult: model.VPNActionResult{
+			Message:      "Open provider login",
+			AuthURL:      "https://login.example/device",
+			UserCode:     "ABCD-EFGH",
+			AwaitingAuth: true,
+		},
+		vpnWaitResult: model.VPNActionResult{
+			Message: "authentication complete",
+		},
+	}
+	screen := newPrivateAccessScreen(source, snapshot)
+	screen.selectedID = model.VPNProviderTailscale
+	screen.inActions = true
+
+	_, actionCmd := screen.update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	authMsg := actionCmd()
+	_, waitCmd := screen.update(authMsg)
+	if waitCmd == nil || screen.auth == nil || !screen.authWaiting {
+		t.Fatal("authentication action should show handoff and start a cancellable wait")
+	}
+
+	output := screen.render(96, 30)
+	for _, want := range []string{"https://login.example/device", "ABCD-EFGH", "Waiting for provider sign-in"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("authentication view missing %q", want)
+		}
+	}
+
+	waitMsg := waitCmd()
+	_, refreshCmd := screen.update(waitMsg)
+	if refreshCmd == nil || screen.auth != nil || screen.authWaiting {
+		t.Fatal("completed authentication should clear ephemeral handoff and refresh")
+	}
+}
+
+func TestAuthenticationEscCancelsWaitWithoutClosingScreen(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
+	screen := newPrivateAccessScreen(&fakeSource{snapshot: snapshot}, snapshot)
+	screen.auth = &privateAccessAuthState{
+		provider: model.VPNProviderTailscale,
+		url:      "https://login.example/",
+	}
+
+	closeScreen, cmd := screen.update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if closeScreen || cmd != nil || screen.auth != nil {
+		t.Fatal("Esc during authentication should cancel the wait and return to provider actions")
+	}
+}
+
 func TestPrivateAccessRefreshUpdatesSnapshot(t *testing.T) {
-	initial := sampleSnapshot()
-	initial.VPN = []model.VPNProviderState{{
-		ID:              model.VPNProviderTailscale,
-		Name:            "Tailscale",
-		Installed:       true,
-		ServiceState:    "active",
-		ServiceRunning:  true,
-		ConnectionState: "NeedsLogin",
-	}}
-	refreshed := sampleSnapshot()
-	refreshed.VPN = []model.VPNProviderState{{
-		ID:              model.VPNProviderTailscale,
-		Name:            "Tailscale",
-		Installed:       true,
-		ServiceEnabled:  true,
-		ServiceState:    "active",
-		ServiceRunning:  true,
-		ConnectionState: "Running",
-		Connected:       true,
-		Addresses:       []string{"100.64.0.20"},
-	}}
+	initial := privateAccessTestSnapshot()
+	refreshed := privateAccessTestSnapshot()
+	refreshed.VPN[0].Addresses = []string{"100.64.0.20"}
 
 	source := &fakeSource{snapshot: refreshed}
 	screen := newPrivateAccessScreen(source, initial)
@@ -82,7 +209,7 @@ func TestPrivateAccessRefreshUpdatesSnapshot(t *testing.T) {
 	if closeScreen || screen.loading {
 		t.Fatal("refresh result should keep the screen open and clear loading")
 	}
-	if len(screen.snapshot.VPN) != 1 || !screen.snapshot.VPN[0].Connected {
+	if screen.snapshot.VPN[0].Addresses[0] != "100.64.0.20" {
 		t.Fatalf("private access snapshot was not refreshed: %#v", screen.snapshot.VPN)
 	}
 }
