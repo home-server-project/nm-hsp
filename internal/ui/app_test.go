@@ -691,3 +691,106 @@ func TestDashboardRefreshTickIsQuietAndBackgroundOnly(t *testing.T) {
 		t.Fatal("dashboard refresh tick should mark a background refresh in progress")
 	}
 }
+
+
+func TestDashboardRendersSymbolicCardsAndWiFiSignalBars(t *testing.T) {
+	snapshot := sampleSnapshot()
+	snapshot.Devices[1].State = 100
+	snapshot.Devices[1].ActiveConnection = &model.ConnectionProfile{
+		ID:            "Home Wi-Fi",
+		UUID:          "wifi-uuid",
+		Type:          "802-11-wireless",
+		InterfaceName: "wlan0",
+	}
+	snapshot.Devices[1].Wireless = &model.WirelessState{
+		SSID:   "Home Wi-Fi",
+		Signal: 82,
+	}
+	snapshot.VPN = []model.VPNProviderState{
+		{
+			ID:        model.VPNProviderTailscale,
+			Name:      "Tailscale",
+			Installed: true,
+			Connected: true,
+		},
+	}
+
+	m := New(&fakeSource{snapshot: snapshot})
+	m.snapshot = snapshot
+	m.loading = false
+	m.width = 100
+
+	output := m.render()
+	for _, want := range []string{"↔", "≋", "◆", "◇", "▂▄▆█", "82% signal"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("dashboard missing symbolic status %q: %q", want, output)
+		}
+	}
+}
+
+func TestDashboardIconStatesFollowLiveNetworkState(t *testing.T) {
+	snapshot := sampleSnapshot()
+
+	if got := deviceDashboardIconState(snapshot, snapshot.Devices[0]); got != dashboardIconGood {
+		t.Fatalf("connected Ethernet icon state = %d, want good", got)
+	}
+
+	disconnectedEthernet := snapshot.Devices[0]
+	disconnectedEthernet.State = 30
+	disconnectedEthernet.ActiveConnection = nil
+	disconnectedEthernet.Carrier = boolPtr(false)
+	if got := deviceDashboardIconState(snapshot, disconnectedEthernet); got != dashboardIconMuted {
+		t.Fatalf("disconnected Ethernet icon state = %d, want muted", got)
+	}
+
+	wifiOff := snapshot.Devices[1]
+	snapshot.WirelessEnabled = false
+	if got := deviceDashboardIconState(snapshot, wifiOff); got != dashboardIconError {
+		t.Fatalf("Wi-Fi-off icon state = %d, want error", got)
+	}
+}
+
+func TestVPNDashboardIconState(t *testing.T) {
+	snapshot := model.Snapshot{VPN: []model.VPNProviderState{
+		{ID: model.VPNProviderTailscale, Installed: true, Connected: true},
+	}}
+	if got := vpnDashboardIconState(snapshot); got != dashboardIconGood {
+		t.Fatalf("connected VPN icon state = %d, want good", got)
+	}
+
+	snapshot.VPN = append(snapshot.VPN, model.VPNProviderState{
+		ID:          model.VPNProviderNetBird,
+		Installed:   true,
+		StatusError: "provider status is unavailable",
+	})
+	if got := vpnDashboardIconState(snapshot); got != dashboardIconError {
+		t.Fatalf("VPN error icon state = %d, want error", got)
+	}
+
+	snapshot.VPN = nil
+	if got := vpnDashboardIconState(snapshot); got != dashboardIconMuted {
+		t.Fatalf("empty VPN icon state = %d, want muted", got)
+	}
+}
+
+func TestWiFiSignalBars(t *testing.T) {
+	tests := []struct {
+		signal uint8
+		want   string
+	}{
+		{0, "▂"},
+		{24, "▂"},
+		{25, "▂▄"},
+		{49, "▂▄"},
+		{50, "▂▄▆"},
+		{74, "▂▄▆"},
+		{75, "▂▄▆█"},
+		{100, "▂▄▆█"},
+	}
+
+	for _, test := range tests {
+		if got := wifiSignalBars(test.signal); got != test.want {
+			t.Fatalf("wifiSignalBars(%d) = %q, want %q", test.signal, got, test.want)
+		}
+	}
+}
