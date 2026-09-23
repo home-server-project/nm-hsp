@@ -14,8 +14,8 @@ import (
 type fakeServices struct {
 	states       map[string]serviceState
 	errs         map[string]error
-	enabledStart []string
-	stopped      []string
+	started []string
+	stopped []string
 }
 
 func (f *fakeServices) UnitState(_ context.Context, unit string) (serviceState, error) {
@@ -25,21 +25,25 @@ func (f *fakeServices) UnitState(_ context.Context, unit string) (serviceState, 
 	return f.states[unit], nil
 }
 
-func (f *fakeServices) EnableAndStart(_ context.Context, unit string) error {
-	f.enabledStart = append(f.enabledStart, unit)
+func (f *fakeServices) Start(_ context.Context, unit string) error {
+	f.started = append(f.started, unit)
 	if f.states == nil {
 		f.states = map[string]serviceState{}
 	}
-	f.states[unit] = serviceState{enabled: true, active: "active"}
+	state := f.states[unit]
+	state.active = "active"
+	f.states[unit] = state
 	return nil
 }
 
-func (f *fakeServices) StopAndDisable(_ context.Context, unit string) error {
+func (f *fakeServices) Stop(_ context.Context, unit string) error {
 	f.stopped = append(f.stopped, unit)
 	if f.states == nil {
 		f.states = map[string]serviceState{}
 	}
-	f.states[unit] = serviceState{enabled: false, active: "inactive"}
+	state := f.states[unit]
+	state.active = "inactive"
+	f.states[unit] = state
 	return nil
 }
 
@@ -110,6 +114,24 @@ func TestTailscaleConnectedState(t *testing.T) {
 	}
 }
 
+func TestDisconnectedProviderHidesAddresses(t *testing.T) {
+	manager := newManager(
+		&fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: true, active: "active"}}},
+		&fakeProviderBackend{
+			states: map[model.VPNProviderID]providerStatus{
+				model.VPNProviderTailscale: {state: "Stopped", connected: false, addresses: []string{"100.64.0.10"}},
+			},
+			available: map[model.VPNProviderID]bool{model.VPNProviderTailscale: true},
+		},
+		fakeInstalled{"tailscale": true},
+	)
+
+	state := manager.Snapshot(context.Background())[0]
+	if state.Connected || len(state.Addresses) != 0 {
+		t.Fatalf("disconnected provider must not expose stale addresses: %#v", state)
+	}
+}
+
 func TestInactiveServiceNeedsNoProviderStatus(t *testing.T) {
 	manager := newManager(
 		&fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: false, active: "inactive"}}},
@@ -153,8 +175,8 @@ func TestActivateStartsServiceAndReturnsAuthenticationHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(services.enabledStart) != 1 || services.enabledStart[0] != "tailscaled.service" {
-		t.Fatalf("started services = %#v", services.enabledStart)
+	if len(services.started) != 1 || services.started[0] != "tailscaled.service" {
+		t.Fatalf("started services = %#v", services.started)
 	}
 	if !result.AwaitingAuth || result.AuthURL == "" {
 		t.Fatalf("action result = %#v", result)
@@ -174,14 +196,14 @@ func TestDisconnectKeepsServiceEnabled(t *testing.T) {
 		t.Fatalf("disconnects = %#v", backend.disconnects)
 	}
 	if len(services.stopped) != 0 {
-		t.Fatal("disconnect must not stop or disable the service")
+		t.Fatal("disconnect must not stop the service")
 	}
 	if result.Message == "" {
 		t.Fatal("disconnect result should explain service remains enabled")
 	}
 }
 
-func TestDeactivateStopsAndDisablesService(t *testing.T) {
+func TestDeactivateStopsService(t *testing.T) {
 	services := &fakeServices{}
 	manager := newManager(services, &fakeProviderBackend{}, fakeInstalled{"netbird": true})
 
