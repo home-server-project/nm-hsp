@@ -67,20 +67,20 @@ type privateAccessAuthState struct {
 }
 
 type privateAccessScreen struct {
-	source       privateAccessSource
-	snapshot     model.Snapshot
-	cursor       int
-	actionCursor int
-	selectedID   model.VPNProviderID
-	inActions    bool
-	loading      bool
-	acting       bool
-	authWaiting      bool
+	source            privateAccessSource
+	snapshot          model.Snapshot
+	cursor            int
+	actionCursor      int
+	selectedID        model.VPNProviderID
+	inActions         bool
+	loading           bool
+	acting            bool
+	authWaiting       bool
 	waitingConnection bool
-	auth             *privateAccessAuthState
-	authCancel   context.CancelFunc
-	err          error
-	notice       string
+	auth              *privateAccessAuthState
+	authCancel        context.CancelFunc
+	err               error
+	notice            string
 }
 
 func newPrivateAccessScreen(source privateAccessSource, snapshot model.Snapshot) *privateAccessScreen {
