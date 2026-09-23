@@ -679,8 +679,9 @@ func (m Model) renderPrivateAccessCard(width int, selected bool) string {
 		marker = "› "
 	}
 	body := fmt.Sprintf(
-		"%s%s\n    %s",
+		"%s%s  %s\n    %s",
 		marker,
+		renderDashboardIcon("◆", vpnDashboardIconState(m.snapshot)),
 		titleStyle.Render("VPN / Private Access"),
 		mutedStyle.Render(privateAccessSummary(m.snapshot)),
 	)
@@ -695,8 +696,9 @@ func (m Model) renderTroubleshootCard(width int, selected bool) string {
 		marker = "› "
 	}
 	body := fmt.Sprintf(
-		"%s%s\n    %s",
+		"%s%s  %s\n    %s",
 		marker,
+		titleStyle.Render("◇"),
 		titleStyle.Render("Troubleshoot"),
 		mutedStyle.Render("Network health, diagnostics, and safe repair"),
 	)
@@ -712,10 +714,13 @@ func (m Model) renderDevice(width int, device model.Device, selected bool) strin
 	}
 
 	label := "Ethernet"
+	icon := "↔"
 	if device.Kind == model.DeviceKindWiFi {
 		label = "Wi-Fi"
+		icon = "≋"
 	}
 
+	icon = renderDashboardIcon(icon, deviceDashboardIconState(m.snapshot, device))
 	state := renderDeviceState(device.State)
 	ipv4 := emptyFallback(firstAddress(device.IPv4), "—")
 	profile := "No active profile"
@@ -726,8 +731,9 @@ func (m Model) renderDevice(width int, device model.Device, selected bool) strin
 	var summary string
 	if width >= 76 {
 		summary = fmt.Sprintf(
-			"%s%s  %s\n    %s   IPv4 %s   %s",
+			"%s%s  %s  %s\n    %s   IPv4 %s   %s",
 			marker,
+			icon,
 			titleStyle.Render(label+" · "+emptyFallback(device.Interface, "unknown")),
 			state,
 			mutedStyle.Render(profile),
@@ -736,8 +742,9 @@ func (m Model) renderDevice(width int, device model.Device, selected bool) strin
 		)
 	} else {
 		summary = fmt.Sprintf(
-			"%s%s  %s\n    %s\n    IPv4 %s\n    %s",
+			"%s%s  %s  %s\n    %s\n    IPv4 %s\n    %s",
 			marker,
+			icon,
 			titleStyle.Render(label+" · "+emptyFallback(device.Interface, "unknown")),
 			state,
 			mutedStyle.Render(profile),
@@ -785,6 +792,68 @@ func (m Model) renderHelp(width int) string {
 		Render(help)
 }
 
+type dashboardIconState uint8
+
+const (
+	dashboardIconMuted dashboardIconState = iota
+	dashboardIconGood
+	dashboardIconError
+)
+
+func renderDashboardIcon(symbol string, state dashboardIconState) string {
+	switch state {
+	case dashboardIconGood:
+		return goodStyle.Render(symbol)
+	case dashboardIconError:
+		return errorStyle.Render(symbol)
+	default:
+		return mutedStyle.Render(symbol)
+	}
+}
+
+func deviceDashboardIconState(snapshot model.Snapshot, device model.Device) dashboardIconState {
+	if device.Kind == model.DeviceKindWiFi && !snapshot.WirelessEnabled {
+		return dashboardIconError
+	}
+	if device.Kind == model.DeviceKindEthernet && device.Carrier != nil && !*device.Carrier {
+		return dashboardIconMuted
+	}
+	if device.State == 120 {
+		return dashboardIconError
+	}
+	if device.State == 100 && device.ActiveConnection != nil {
+		return dashboardIconGood
+	}
+	return dashboardIconMuted
+}
+
+func vpnDashboardIconState(snapshot model.Snapshot) dashboardIconState {
+	for _, provider := range snapshot.VPN {
+		if provider.StatusError != "" {
+			return dashboardIconError
+		}
+	}
+	for _, provider := range snapshot.VPN {
+		if provider.Connected {
+			return dashboardIconGood
+		}
+	}
+	return dashboardIconMuted
+}
+
+func wifiSignalBars(signal uint8) string {
+	switch {
+	case signal < 25:
+		return "▂"
+	case signal < 50:
+		return "▂▄"
+	case signal < 75:
+		return "▂▄▆"
+	default:
+		return "▂▄▆█"
+	}
+}
+
 func renderDeviceState(state uint32) string {
 	switch state {
 	case 100:
@@ -805,7 +874,12 @@ func deviceExtra(device model.Device) string {
 			return ""
 		}
 		if device.Wireless.SSID != "" {
-			return fmt.Sprintf("%s · %d%% signal", device.Wireless.SSID, device.Wireless.Signal)
+			return fmt.Sprintf(
+				"%s · %s %d%% signal",
+				device.Wireless.SSID,
+				goodStyle.Render(wifiSignalBars(device.Wireless.Signal)),
+				device.Wireless.Signal,
+			)
 		}
 		return "not associated"
 
