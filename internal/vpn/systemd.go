@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	systemdBusName      = "org.freedesktop.systemd1"
-	systemdManagerPath  = dbus.ObjectPath("/org/freedesktop/systemd1")
-	systemdManagerIface = "org.freedesktop.systemd1.Manager"
-	systemdUnitIface    = "org.freedesktop.systemd1.Unit"
+	systemdBusName           = "org.freedesktop.systemd1"
+	systemdManagerPath       = dbus.ObjectPath("/org/freedesktop/systemd1")
+	systemdManagerIface      = "org.freedesktop.systemd1.Manager"
+	systemdUnitIface         = "org.freedesktop.systemd1.Unit"
+	serviceTransitionTimeout = 5 * time.Second
 )
 
 type systemdReader struct{}
@@ -91,13 +92,31 @@ func (r systemdReader) Stop(ctx context.Context, unit string) error {
 }
 
 func (r systemdReader) waitForActiveState(ctx context.Context, unit, wantState string) error {
+	waitCtx, cancel := context.WithTimeout(ctx, serviceTransitionTimeout)
+	defer cancel()
+
+	return waitForServiceState(waitCtx, unit, wantState, r.UnitState)
+}
+
+func waitForServiceState(
+	ctx context.Context,
+	unit string,
+	wantState string,
+	readState func(context.Context, string) (serviceState, error),
+) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
-		state, err := r.UnitState(ctx, unit)
-		if err == nil && state.active == wantState {
+		state, err := readState(ctx, unit)
+		if err != nil {
+			return fmt.Errorf("read service state: %w", err)
+		}
+		if state.active == wantState {
 			return nil
+		}
+		if state.active == "failed" {
+			return fmt.Errorf("service entered failed state while waiting for %s", wantState)
 		}
 
 		select {
