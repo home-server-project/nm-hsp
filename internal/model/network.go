@@ -106,6 +106,7 @@ type Snapshot struct {
 	WirelessEnabled   bool
 	Devices           []Device
 	Profiles          []ConnectionProfile
+	VPN               []VPNProviderState
 }
 
 // DeviceKindFromNM maps NetworkManager's NMDeviceType values that nm-hsp
