@@ -12,10 +12,10 @@ import (
 type themePreferenceSaver func(ThemeMode) error
 
 type optionsScreen struct {
-	cursor int
-	theme ThemeMode
+	cursor    int
+	theme     ThemeMode
 	saveTheme themePreferenceSaver
-	err error
+	err       error
 }
 
 func newOptionsScreen(theme ThemeMode, saveTheme themePreferenceSaver) *optionsScreen {
