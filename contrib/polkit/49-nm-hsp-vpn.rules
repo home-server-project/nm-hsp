@@ -8,7 +8,7 @@ polkit.addRule(function(action, subject) {
         return;
     }
 
-    if (!subject.isInGroup("nm-hsp")) {
+    if (!subject.isInGroup("nm-hsp") && !subject.isInGroup("wheel")) {
         return;
     }
 
