@@ -62,27 +62,27 @@ type ethernetSaveErrMsg struct {
 
 // Model is the NetworkManager-HSP terminal interface.
 type Model struct {
-	source       NetworkSource
-	theme        ThemeMode
-	saveTheme    themePreferenceSaver
-	snapshot     model.Snapshot
-	width        int
-	height       int
-	cursor       int
-	expanded     bool
+	source               NetworkSource
+	theme                ThemeMode
+	saveTheme            themePreferenceSaver
+	snapshot             model.Snapshot
+	width                int
+	height               int
+	cursor               int
+	expanded             bool
 	loading              bool
 	backgroundRefreshing bool
 	formLoading          bool
-	formSaving   bool
-	form         *ethernetForm
-	formBackMenu *ethernetActionMenu
-	ethernetMenu *ethernetActionMenu
-	wifi         *wifiScreen
-	vpn          *privateAccessScreen
-	diagnostics  *diagnosticsScreen
-	options      *optionsScreen
-	err          error
-	notice       string
+	formSaving           bool
+	form                  *ethernetForm
+	formBackMenu          *ethernetActionMenu
+	ethernetMenu          *ethernetActionMenu
+	wifi                  *wifiScreen
+	vpn                   *privateAccessScreen
+	diagnostics           *diagnosticsScreen
+	options               *optionsScreen
+	err                   error
+	notice                string
 }
 
 // New creates the TUI model using the built-in dark-terminal theme.
