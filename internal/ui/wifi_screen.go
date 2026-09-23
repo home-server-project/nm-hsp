@@ -36,6 +36,16 @@ type wifiRefreshErrMsg struct {
 	err error
 }
 
+type wifiBackgroundRefreshTickMsg struct{}
+
+type wifiBackgroundRefreshMsg struct {
+	refresh wifiRefreshMsg
+}
+
+type wifiBackgroundRefreshErrMsg struct {
+	err error
+}
+
 type wifiOperationKind int
 
 const (
@@ -111,12 +121,31 @@ func newWiFiScreen(source wifiSource, device model.Device, snapshot model.Snapsh
 	return screen
 }
 
+const (
+	wifiBackgroundRefreshInterval = 2 * time.Second
+	wifiBackgroundRefreshTimeout  = 4 * time.Second
+)
+
 func (s *wifiScreen) init() tea.Cmd {
-	return s.refresh(false)
+	return tea.Batch(s.refresh(false), s.scheduleBackgroundRefresh())
 }
 
 func (s *wifiScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 	switch msg := msg.(type) {
+	case wifiBackgroundRefreshTickMsg:
+		next := s.scheduleBackgroundRefresh()
+		if s.backgroundRefreshBlocked() {
+			return false, next
+		}
+		return false, tea.Batch(next, s.backgroundRefresh())
+
+	case wifiBackgroundRefreshMsg:
+		s.applyRefresh(msg.refresh)
+		return false, nil
+
+	case wifiBackgroundRefreshErrMsg:
+		return false, nil
+
 	case wifiRefreshMsg:
 		s.applyRefresh(msg)
 		s.loading = false
@@ -391,11 +420,15 @@ func (s *wifiScreen) openActionMenu(item wifiListItem) {
 }
 
 func (s *wifiScreen) applyRefresh(msg wifiRefreshMsg) {
+	nearbyKey := s.selectedNearbyKey()
+	savedKey := s.selectedSavedKey()
+
 	s.snapshot = msg.snapshot
 	s.device = msg.device
 	s.networks = msg.networks
 	s.wirelessEnabled = msg.snapshot.WirelessEnabled
 	s.rebuildItems()
+	s.restoreWiFiSelection(nearbyKey, savedKey)
 }
 
 func (s *wifiScreen) refreshForSnapshot(
@@ -447,6 +480,38 @@ func (s *wifiScreen) refresh(rescan bool) tea.Cmd {
 		}
 		return wifiRefreshMsg{snapshot: snapshot, device: device, networks: networks}
 	}
+}
+
+func (s *wifiScreen) scheduleBackgroundRefresh() tea.Cmd {
+	return tea.Tick(wifiBackgroundRefreshInterval, func(time.Time) tea.Msg {
+		return wifiBackgroundRefreshTickMsg{}
+	})
+}
+
+func (s *wifiScreen) backgroundRefresh() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), wifiBackgroundRefreshTimeout)
+		defer cancel()
+
+		snapshot, err := s.source.Snapshot(ctx)
+		if err != nil {
+			return wifiBackgroundRefreshErrMsg{err: err}
+		}
+		refresh, err := s.refreshForSnapshot(ctx, snapshot)
+		if err != nil {
+			return wifiBackgroundRefreshErrMsg{err: err}
+		}
+		return wifiBackgroundRefreshMsg{refresh: *refresh}
+	}
+}
+
+func (s *wifiScreen) backgroundRefreshBlocked() bool {
+	return s.loading ||
+		s.busy ||
+		s.menu != nil ||
+		s.connectForm != nil ||
+		s.profileForm != nil ||
+		s.confirmForget != nil
 }
 
 func (s *wifiScreen) setRadio(enabled bool) tea.Cmd {
@@ -700,6 +765,67 @@ func (s *wifiScreen) clampWiFiCursors() {
 		s.savedCursor = 0
 	} else if s.savedCursor >= len(s.savedItems) {
 		s.savedCursor = len(s.savedItems) - 1
+	}
+}
+
+func (s *wifiScreen) selectedNearbyKey() string {
+	item, ok := s.mainSelectedItem()
+	if !ok || item.network == nil {
+		return ""
+	}
+	if item.network.ObjectPath != "" {
+		return "path:" + item.network.ObjectPath
+	}
+	return "network:" + item.network.SSID + "|" + item.network.BSSID + "|" + item.network.KeyManagement
+}
+
+func (s *wifiScreen) selectedSavedKey() string {
+	if s.savedCursor < 0 || s.savedCursor >= len(s.savedItems) {
+		return ""
+	}
+	item := s.savedItems[s.savedCursor]
+	if item.profile == nil {
+		return ""
+	}
+	if item.profile.ObjectPath != "" {
+		return "path:" + item.profile.ObjectPath
+	}
+	return "profile:" + item.profile.UUID + "|" + item.profile.SSID
+}
+
+func (s *wifiScreen) restoreWiFiSelection(nearbyKey, savedKey string) {
+	if nearbyKey != "" {
+		for index, item := range s.items {
+			key := ""
+			if item.network != nil {
+				if item.network.ObjectPath != "" {
+					key = "path:" + item.network.ObjectPath
+				} else {
+					key = "network:" + item.network.SSID + "|" + item.network.BSSID + "|" + item.network.KeyManagement
+				}
+			}
+			if key == nearbyKey {
+				s.cursor = index + 1
+				break
+			}
+		}
+	}
+
+	if savedKey != "" {
+		for index, item := range s.savedItems {
+			key := ""
+			if item.profile != nil {
+				if item.profile.ObjectPath != "" {
+					key = "path:" + item.profile.ObjectPath
+				} else {
+					key = "profile:" + item.profile.UUID + "|" + item.profile.SSID
+				}
+			}
+			if key == savedKey {
+				s.savedCursor = index
+				break
+			}
+		}
 	}
 }
 
