@@ -445,7 +445,7 @@ func TestDashboardRendersTroubleshootCardAndProjectBranding(t *testing.T) {
 		"Ethernet ",
 		"Wi-Fi ",
 		"connected",
-		"Private Access",
+		"VPN / Private Access",
 		"Troubleshoot",
 		"t troubleshoot",
 	} {

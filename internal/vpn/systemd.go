@@ -70,10 +70,13 @@ func (r systemdReader) EnableAndStart(ctx context.Context, unit string) error {
 	defer conn.Close()
 
 	manager := conn.Object(systemdBusName, systemdManagerPath)
-	if call := manager.CallWithContext(ctx, systemdManagerIface+".EnableUnitFiles", 0, []string{unit}, false, true); call.Err != nil {
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".EnableUnitFiles", dbus.FlagAllowInteractiveAuthorization, []string{unit}, false, true); call.Err != nil {
 		return fmt.Errorf("enable unit: %w", call.Err)
 	}
-	if call := manager.CallWithContext(ctx, systemdManagerIface+".StartUnit", 0, unit, "replace"); call.Err != nil {
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".Reload", dbus.FlagAllowInteractiveAuthorization); call.Err != nil {
+		return fmt.Errorf("reload systemd manager after enabling unit: %w", call.Err)
+	}
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".StartUnit", dbus.FlagAllowInteractiveAuthorization, unit, "replace"); call.Err != nil {
 		return fmt.Errorf("start unit: %w", call.Err)
 	}
 	return r.waitForActiveState(ctx, unit, true)
@@ -87,14 +90,17 @@ func (r systemdReader) StopAndDisable(ctx context.Context, unit string) error {
 	defer conn.Close()
 
 	manager := conn.Object(systemdBusName, systemdManagerPath)
-	if call := manager.CallWithContext(ctx, systemdManagerIface+".StopUnit", 0, unit, "replace"); call.Err != nil {
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".StopUnit", dbus.FlagAllowInteractiveAuthorization, unit, "replace"); call.Err != nil {
 		return fmt.Errorf("stop unit: %w", call.Err)
 	}
 	if err := r.waitForActiveState(ctx, unit, false); err != nil {
 		return err
 	}
-	if call := manager.CallWithContext(ctx, systemdManagerIface+".DisableUnitFiles", 0, []string{unit}, false); call.Err != nil {
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".DisableUnitFiles", dbus.FlagAllowInteractiveAuthorization, []string{unit}, false); call.Err != nil {
 		return fmt.Errorf("disable unit: %w", call.Err)
+	}
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".Reload", dbus.FlagAllowInteractiveAuthorization); call.Err != nil {
+		return fmt.Errorf("reload systemd manager after disabling unit: %w", call.Err)
 	}
 	return nil
 }

@@ -589,7 +589,7 @@ func (m Model) renderPrivateAccessCard(width int, selected bool) string {
 	body := fmt.Sprintf(
 		"%s%s\n    %s",
 		marker,
-		titleStyle.Render("Private Access"),
+		titleStyle.Render("VPN / Private Access"),
 		mutedStyle.Render(privateAccessSummary(m.snapshot)),
 	)
 	return style.Width(cardContentWidth(width)).Render(body)

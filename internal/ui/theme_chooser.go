@@ -11,6 +11,7 @@ import (
 
 // ThemeChooserModel is the first-run terminal appearance chooser.
 type ThemeChooserModel struct {
+	width     int
 	cursor    int
 	selected  ThemeMode
 	remember  bool
@@ -18,9 +19,10 @@ type ThemeChooserModel struct {
 	cancelled bool
 }
 
-// NewThemeChooser creates the neutral first-run theme chooser. It intentionally
-// uses terminal-native colors so it remains readable before a theme is chosen.
+// NewThemeChooser creates the first-run theme chooser using the same visual
+// language as the main nm-hsp dashboard.
 func NewThemeChooser() ThemeChooserModel {
+	ApplyTheme(ThemeDark)
 	return ThemeChooserModel{
 		selected: ThemeDark,
 	}
@@ -28,31 +30,41 @@ func NewThemeChooser() ThemeChooserModel {
 
 func (m ThemeChooserModel) Init() tea.Cmd { return nil }
 
-// Update handles first-run theme selection.
+// Update handles first-run theme selection. Choosing Dark or Light immediately
+// applies that palette so the chooser itself acts as a live preview.
 func (m ThemeChooserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyPressMsg); ok {
-		switch key.String() {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+
+	case tea.KeyPressMsg:
+		switch msg.String() {
 		case "ctrl+c", "q", "esc":
 			m.cancelled = true
 			return m, tea.Quit
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				m.previewCursorTheme()
 			}
 		case "down", "j", "tab":
 			if m.cursor < 3 {
 				m.cursor++
+				m.previewCursorTheme()
 			}
 		case "shift+tab":
 			if m.cursor > 0 {
 				m.cursor--
+				m.previewCursorTheme()
 			}
 		case " ", "enter":
 			switch m.cursor {
 			case 0:
 				m.selected = ThemeDark
+				ApplyTheme(m.selected)
 			case 1:
 				m.selected = ThemeLight
+				ApplyTheme(m.selected)
 			case 2:
 				m.remember = !m.remember
 			case 3:
@@ -64,57 +76,110 @@ func (m ThemeChooserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders a color-neutral chooser using only terminal-native foreground,
-// reverse video, and text markers.
+func (m *ThemeChooserModel) previewCursorTheme() {
+	switch m.cursor {
+	case 0:
+		m.selected = ThemeDark
+		ApplyTheme(m.selected)
+	case 1:
+		m.selected = ThemeLight
+		ApplyTheme(m.selected)
+	}
+}
+
+// View renders the chooser with the same cards, accent, muted text, and help
+// lane used by the rest of nm-hsp.
 func (m ThemeChooserModel) View() tea.View {
+	width := m.width
+	if width <= 0 {
+		width = 88
+	}
+	if width < 32 {
+		width = 32
+	}
+	contentWidth := width - 2
+
 	var out strings.Builder
-
-	title := lipgloss.NewStyle().Bold(true).Render("NetworkManager-HSP")
-	out.WriteString(title)
-	out.WriteString("\n\n")
-	out.WriteString("Choose your terminal appearance")
+	header := titleStyle.Render("NetworkManager-HSP") + "  " +
+		mutedStyle.Render("terminal appearance")
+	out.WriteString(lipgloss.NewStyle().
+		Width(contentWidth).
+		Padding(0, 1).
+		Render(header))
 	out.WriteString("\n")
-	out.WriteString("This controls built-in contrast only. You can customize colors later.")
+	out.WriteString(lipgloss.NewStyle().
+		Width(contentWidth).
+		Padding(0, 1).
+		Render(mutedStyle.Render("Choose the built-in contrast that matches your terminal.")))
 	out.WriteString("\n\n")
 
-	rows := []string{
-		radioLine(m.selected == ThemeDark, "Dark terminal"),
-		radioLine(m.selected == ThemeLight, "Light terminal"),
-		checkboxLine(m.remember, "Don't show this again"),
-		"[ OK ]",
+	options := []struct {
+		title       string
+		description string
+		selected    bool
+	}{
+		{
+			title:       "Dark terminal",
+			description: "Optimized for dark terminal backgrounds",
+			selected:    m.selected == ThemeDark,
+		},
+		{
+			title:       "Light terminal",
+			description: "Optimized for light terminal backgrounds",
+			selected:    m.selected == ThemeLight,
+		},
 	}
 
-	for i, row := range rows {
-		prefix := "  "
-		style := lipgloss.NewStyle()
+	for i, option := range options {
+		style := cardStyle
+		marker := "  "
 		if i == m.cursor {
-			prefix = "› "
-			style = style.Bold(true).Reverse(true)
+			style = selectedCardStyle
+			marker = "› "
 		}
-		out.WriteString(style.Render(prefix + row))
+		choice := "( )"
+		if option.selected {
+			choice = "(●)"
+		}
+		body := marker + titleStyle.Render(choice+" "+option.title) +
+			"\n    " + mutedStyle.Render(option.description)
+		out.WriteString(style.Width(cardContentWidth(contentWidth)).Render(body))
 		out.WriteString("\n")
 	}
 
+	rememberStyle := cardStyle
+	rememberMarker := "  "
+	if m.cursor == 2 {
+		rememberStyle = selectedCardStyle
+		rememberMarker = "› "
+	}
+	check := "[ ]"
+	if m.remember {
+		check = "[x]"
+	}
+	out.WriteString(rememberStyle.
+		Width(cardContentWidth(contentWidth)).
+		Render(rememberMarker + check + " Don't show this again"))
 	out.WriteString("\n")
-	out.WriteString("↑/↓ or j/k move   Enter/Space select   Esc/q cancel")
+
+	continueStyle := cardStyle
+	continueMarker := "  "
+	if m.cursor == 3 {
+		continueStyle = selectedCardStyle
+		continueMarker = "› "
+	}
+	out.WriteString(continueStyle.
+		Width(cardContentWidth(contentWidth)).
+		Render(continueMarker + "Continue"))
+
+	out.WriteString("\n\n")
+	out.WriteString(helpStyle.Width(contentWidth).Render(
+		"↑/↓ or j/k move   Enter/Space select   Esc/q cancel",
+	))
 
 	view := tea.NewView(out.String())
 	view.AltScreen = true
 	return view
-}
-
-func radioLine(selected bool, label string) string {
-	if selected {
-		return "(●) " + label
-	}
-	return "( ) " + label
-}
-
-func checkboxLine(checked bool, label string) string {
-	if checked {
-		return "[x] " + label
-	}
-	return "[ ] " + label
 }
 
 // SelectedTheme returns the chosen built-in terminal theme.
@@ -123,7 +188,7 @@ func (m ThemeChooserModel) SelectedTheme() ThemeMode { return m.selected }
 // RememberChoice reports whether the selection should be persisted.
 func (m ThemeChooserModel) RememberChoice() bool { return m.remember }
 
-// Confirmed reports whether the user activated OK.
+// Confirmed reports whether the user activated Continue.
 func (m ThemeChooserModel) Confirmed() bool { return m.confirmed }
 
 // Cancelled reports whether the chooser was exited without confirmation.

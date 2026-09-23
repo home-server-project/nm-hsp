@@ -63,13 +63,30 @@ func TestEnterOpensConnectedProviderActions(t *testing.T) {
 	output := screen.render(96, 30)
 	for _, want := range []string{
 		"Disconnect (keep service enabled)",
-		"Reconnect",
 		"Disable service",
 		"Disconnect keeps the service enabled",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("action screen missing %q", want)
 		}
+	}
+	if strings.Contains(output, "Reconnect") {
+		t.Fatal("connected provider must not offer Reconnect")
+	}
+}
+
+func TestNoStateRendersAsDisconnected(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
+	snapshot.VPN[0].Connected = false
+	snapshot.VPN[0].ConnectionState = "NoState"
+	screen := newPrivateAccessScreen(&fakeSource{snapshot: snapshot}, snapshot)
+
+	output := screen.render(96, 30)
+	if !strings.Contains(output, "disconnected") {
+		t.Fatalf("NoState should render as disconnected: %q", output)
+	}
+	if strings.Contains(output, "NoState") {
+		t.Fatalf("raw provider state leaked into UI: %q", output)
 	}
 }
 
