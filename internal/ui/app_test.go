@@ -692,7 +692,6 @@ func TestDashboardRefreshTickIsQuietAndBackgroundOnly(t *testing.T) {
 	}
 }
 
-
 func TestDashboardRendersSymbolicCardsAndWiFiSignalBars(t *testing.T) {
 	snapshot := sampleSnapshot()
 	snapshot.Devices[1].State = 100
