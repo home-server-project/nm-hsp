@@ -53,6 +53,8 @@ type ethernetSaveErrMsg struct {
 // Model is the NetworkManager-HSP terminal interface.
 type Model struct {
 	source       NetworkSource
+	theme        ThemeMode
+	saveTheme    themePreferenceSaver
 	snapshot     model.Snapshot
 	width        int
 	height       int
@@ -67,6 +69,7 @@ type Model struct {
 	wifi         *wifiScreen
 	vpn          *privateAccessScreen
 	diagnostics  *diagnosticsScreen
+	options      *optionsScreen
 	err          error
 	notice       string
 }
@@ -78,10 +81,18 @@ func New(source NetworkSource) Model {
 
 // NewWithTheme creates the TUI model using the selected built-in terminal theme.
 func NewWithTheme(source NetworkSource, mode ThemeMode) Model {
+	return NewWithThemeSaver(source, mode, nil)
+}
+
+// NewWithThemeSaver creates the TUI model and optionally persists theme changes
+// made later from the Options screen.
+func NewWithThemeSaver(source NetworkSource, mode ThemeMode, saveTheme func(ThemeMode) error) Model {
 	ApplyTheme(mode)
 	return Model{
-		source:  source,
-		loading: true,
+		source:    source,
+		theme:     mode,
+		saveTheme: saveTheme,
+		loading:   true,
 	}
 }
 
@@ -98,6 +109,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if m.options != nil {
+		if m.options.update(msg) {
+			m.theme = m.options.theme
+			m.options = nil
+		}
+		return m, nil
 	}
 	if m.diagnostics != nil {
 		closeScreen, cmd := m.diagnostics.update(msg)
@@ -265,6 +283,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.wifi.init()
 			}
 			m.expanded = !m.expanded
+
+		case "o":
+			m.notice = ""
+			m.options = newOptionsScreen(m.theme, m.saveTheme)
+			return m, nil
 
 		case "t":
 			m.notice = ""
@@ -449,6 +472,9 @@ func (m Model) render() string {
 		width = 32
 	}
 
+	if m.options != nil {
+		return m.options.render(width - 2)
+	}
 	if m.vpn != nil {
 		return m.vpn.render(width-2, m.height)
 	}
@@ -684,9 +710,9 @@ func (m Model) renderDetails(device model.Device) string {
 }
 
 func (m Model) renderHelp(width int) string {
-	help := "↑/↓ or j/k navigate   Enter select   t troubleshoot   d details   r refresh   q exit"
+	help := "↑/↓ or j/k navigate   Enter select   o options   t troubleshoot   d details   r refresh   q exit"
 	if width < 68 {
-		help = "↑/↓ move   Enter select   t troubleshoot   r refresh   q exit"
+		help = "↑/↓ move   Enter select   o options   t troubleshoot   r refresh   q exit"
 	}
 	return helpStyle.
 		Width(width).
