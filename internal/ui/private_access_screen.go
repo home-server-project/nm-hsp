@@ -60,19 +60,19 @@ type privateAccessAuthState struct {
 }
 
 type privateAccessScreen struct {
-	source            privateAccessSource
-	snapshot          model.Snapshot
-	cursor            int
-	actionCursor      int
-	selectedID        model.VPNProviderID
-	inActions         bool
-	loading           bool
-	acting            bool
-	authWaiting       bool
-	auth              *privateAccessAuthState
-	authCancel        context.CancelFunc
-	err               error
-	notice            string
+	source       privateAccessSource
+	snapshot     model.Snapshot
+	cursor       int
+	actionCursor int
+	selectedID   model.VPNProviderID
+	inActions    bool
+	loading      bool
+	acting       bool
+	authWaiting  bool
+	auth         *privateAccessAuthState
+	authCancel   context.CancelFunc
+	err          error
+	notice       string
 }
 
 const (
