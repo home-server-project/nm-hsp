@@ -116,7 +116,9 @@ func main() {
 		return
 	}
 
-	program := tea.NewProgram(ui.NewWithTheme(source, themeMode))
+	program := tea.NewProgram(ui.NewWithThemeSaver(source, themeMode, func(mode ui.ThemeMode) error {
+		return preferences.SaveTerminalTheme(string(mode))
+	}))
 	if _, err := program.Run(); err != nil {
 		exitf("nm-hsp: %v", err)
 	}

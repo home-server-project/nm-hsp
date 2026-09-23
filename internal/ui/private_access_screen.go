@@ -313,22 +313,15 @@ func (s *privateAccessScreen) currentActions() []privateAccessActionOption {
 	}
 
 	if !provider.ServiceRunning {
-		actions := []privateAccessActionOption{
+		return []privateAccessActionOption{
 			{label: "Activate service and connect", action: model.VPNActionActivate},
 		}
-		if provider.ServiceEnabled {
-			actions = append(actions, privateAccessActionOption{
-				label:  "Disable service at startup",
-				action: model.VPNActionDeactivate,
-			})
-		}
-		return actions
 	}
 
 	if provider.Connected {
 		return []privateAccessActionOption{
-			{label: "Disconnect (keep service enabled)", action: model.VPNActionDisconnect},
-			{label: "Disable service", action: model.VPNActionDeactivate},
+			{label: "Disconnect (keep service running)", action: model.VPNActionDisconnect},
+			{label: "Deactivate service", action: model.VPNActionDeactivate},
 		}
 	}
 
@@ -339,7 +332,7 @@ func (s *privateAccessScreen) currentActions() []privateAccessActionOption {
 	}
 	return []privateAccessActionOption{
 		{label: connectLabel, action: model.VPNActionConnect},
-		{label: "Disable service", action: model.VPNActionDeactivate},
+		{label: "Deactivate service", action: model.VPNActionDeactivate},
 	}
 }
 
@@ -428,7 +421,7 @@ func (s *privateAccessScreen) renderActions(width int) string {
 	out.WriteString(renderPrivateAccessProvider(width, provider, false))
 	out.WriteString("\n")
 	out.WriteString(lipgloss.NewStyle().Width(width).Padding(0, 1).Render(
-		mutedStyle.Render("Disconnect keeps the service enabled. Disable service stops it and disables startup."),
+		mutedStyle.Render("Disconnect keeps the service running. Deactivate service stops it for this boot."),
 	))
 
 	actions := s.currentActions()

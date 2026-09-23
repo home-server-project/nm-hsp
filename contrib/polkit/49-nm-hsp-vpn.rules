@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Allow trusted nm-hsp users to start and stop only the VPN services
+// managed by nm-hsp. This does not grant generic systemd unit control.
+
+polkit.addRule(function(action, subject) {
+    if (action.id !== "org.freedesktop.systemd1.manage-units") {
+        return;
+    }
+
+    if (!subject.isInGroup("nm-hsp") && !subject.isInGroup("wheel")) {
+        return;
+    }
+
+    var unit = action.lookup("unit");
+    var verb = action.lookup("verb");
+
+    var allowedUnit =
+        unit === "tailscaled.service" ||
+        unit === "netbird.service";
+
+    var allowedVerb =
+        verb === "start" ||
+        verb === "stop";
+
+    if (allowedUnit && allowedVerb) {
+        return polkit.Result.YES;
+    }
+});

@@ -414,6 +414,22 @@ func TestEnterOnWiFiOpensManager(t *testing.T) {
 	}
 }
 
+func TestOptionsKeyOpensAppearanceScreen(t *testing.T) {
+	snapshot := sampleSnapshot()
+	m := New(&fakeSource{snapshot: snapshot})
+	m.snapshot = snapshot
+	m.loading = false
+
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'o'}))
+	m = updated.(Model)
+	if cmd != nil || m.options == nil {
+		t.Fatal("o should open Options")
+	}
+	if !strings.Contains(m.render(), "Appearance") {
+		t.Fatal("Options screen should show Appearance")
+	}
+}
+
 func TestTroubleshootKeyOpensDiagnostics(t *testing.T) {
 	snapshot := sampleSnapshot()
 	source := &fakeSource{snapshot: snapshot}
@@ -447,6 +463,7 @@ func TestDashboardRendersTroubleshootCardAndProjectBranding(t *testing.T) {
 		"connected",
 		"VPN / Private Access",
 		"Troubleshoot",
+		"o options",
 		"t troubleshoot",
 	} {
 		if !strings.Contains(output, want) {

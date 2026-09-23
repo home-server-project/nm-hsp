@@ -62,9 +62,9 @@ func TestEnterOpensConnectedProviderActions(t *testing.T) {
 	}
 	output := screen.render(96, 30)
 	for _, want := range []string{
-		"Disconnect (keep service enabled)",
-		"Disable service",
-		"Disconnect keeps the service enabled",
+		"Disconnect (keep service running)",
+		"Deactivate service",
+		"Disconnect keeps the service running",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("action screen missing %q", want)
