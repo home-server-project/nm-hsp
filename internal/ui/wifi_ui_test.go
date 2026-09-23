@@ -402,7 +402,6 @@ func TestConnectedWiFiForgetConfirmationExplainsDisconnect(t *testing.T) {
 	}
 }
 
-
 func TestWiFiBackgroundRefreshDoesNotRequestActiveScan(t *testing.T) {
 	snapshot := sampleSnapshot()
 	source := &fakeSource{
