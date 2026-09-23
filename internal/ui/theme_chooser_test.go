@@ -14,6 +14,9 @@ func TestThemeChooserSelectsLightAndRemember(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m = updated.(ThemeChooserModel)
+	if m.SelectedTheme() != ThemeLight || currentTheme != ThemeLight {
+		t.Fatalf("moving to light should preview it immediately: selected=%q current=%q", m.SelectedTheme(), currentTheme)
+	}
 	updated, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m = updated.(ThemeChooserModel)
 	if m.SelectedTheme() != ThemeLight {
