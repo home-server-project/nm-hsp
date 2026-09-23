@@ -62,7 +62,7 @@ func (systemdReader) UnitState(ctx context.Context, unit string) (serviceState, 
 	}, nil
 }
 
-func (r systemdReader) EnableAndStart(ctx context.Context, unit string) error {
+func (r systemdReader) Start(ctx context.Context, unit string) error {
 	conn, err := dbus.ConnectSystemBus()
 	if err != nil {
 		return fmt.Errorf("connect system bus: %w", err)
@@ -70,19 +70,13 @@ func (r systemdReader) EnableAndStart(ctx context.Context, unit string) error {
 	defer conn.Close()
 
 	manager := conn.Object(systemdBusName, systemdManagerPath)
-	if call := manager.CallWithContext(ctx, systemdManagerIface+".EnableUnitFiles", dbus.FlagAllowInteractiveAuthorization, []string{unit}, false, true); call.Err != nil {
-		return fmt.Errorf("enable unit: %w", call.Err)
-	}
-	if call := manager.CallWithContext(ctx, systemdManagerIface+".Reload", dbus.FlagAllowInteractiveAuthorization); call.Err != nil {
-		return fmt.Errorf("reload systemd manager after enabling unit: %w", call.Err)
-	}
-	if call := manager.CallWithContext(ctx, systemdManagerIface+".StartUnit", dbus.FlagAllowInteractiveAuthorization, unit, "replace"); call.Err != nil {
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".StartUnit", 0, unit, "replace"); call.Err != nil {
 		return fmt.Errorf("start unit: %w", call.Err)
 	}
-	return r.waitForActiveState(ctx, unit, true)
+	return r.waitForActiveState(ctx, unit, "active")
 }
 
-func (r systemdReader) StopAndDisable(ctx context.Context, unit string) error {
+func (r systemdReader) Stop(ctx context.Context, unit string) error {
 	conn, err := dbus.ConnectSystemBus()
 	if err != nil {
 		return fmt.Errorf("connect system bus: %w", err)
@@ -90,37 +84,25 @@ func (r systemdReader) StopAndDisable(ctx context.Context, unit string) error {
 	defer conn.Close()
 
 	manager := conn.Object(systemdBusName, systemdManagerPath)
-	if call := manager.CallWithContext(ctx, systemdManagerIface+".StopUnit", dbus.FlagAllowInteractiveAuthorization, unit, "replace"); call.Err != nil {
+	if call := manager.CallWithContext(ctx, systemdManagerIface+".StopUnit", 0, unit, "replace"); call.Err != nil {
 		return fmt.Errorf("stop unit: %w", call.Err)
 	}
-	if err := r.waitForActiveState(ctx, unit, false); err != nil {
-		return err
-	}
-	if call := manager.CallWithContext(ctx, systemdManagerIface+".DisableUnitFiles", dbus.FlagAllowInteractiveAuthorization, []string{unit}, false); call.Err != nil {
-		return fmt.Errorf("disable unit: %w", call.Err)
-	}
-	if call := manager.CallWithContext(ctx, systemdManagerIface+".Reload", dbus.FlagAllowInteractiveAuthorization); call.Err != nil {
-		return fmt.Errorf("reload systemd manager after disabling unit: %w", call.Err)
-	}
-	return nil
+	return r.waitForActiveState(ctx, unit, "inactive")
 }
 
-func (r systemdReader) waitForActiveState(ctx context.Context, unit string, wantActive bool) error {
+func (r systemdReader) waitForActiveState(ctx context.Context, unit, wantState string) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		state, err := r.UnitState(ctx, unit)
-		if err == nil && (state.active == "active") == wantActive {
+		if err == nil && state.active == wantState {
 			return nil
 		}
 
 		select {
 		case <-ctx.Done():
-			if wantActive {
-				return fmt.Errorf("service did not become active: %w", ctx.Err())
-			}
-			return fmt.Errorf("service did not stop: %w", ctx.Err())
+			return fmt.Errorf("service did not reach %s state: %w", wantState, ctx.Err())
 		case <-ticker.C:
 		}
 	}
