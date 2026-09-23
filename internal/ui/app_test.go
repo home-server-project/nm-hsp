@@ -18,6 +18,7 @@ type fakeSource struct {
 	saveErr              error
 	saved                *model.EthernetProfile
 	wifiNetworks         []model.WiFiNetwork
+	wifiScanRequests     int
 	wifiConnectErr       error
 	wifiRequest          model.WiFiConnectRequest
 	repairErr            error
@@ -58,6 +59,7 @@ func (f *fakeSource) WiFiNetworks(context.Context, string) ([]model.WiFiNetwork,
 }
 
 func (f *fakeSource) RequestWiFiScan(context.Context, string) error {
+	f.wifiScanRequests++
 	return nil
 }
 
