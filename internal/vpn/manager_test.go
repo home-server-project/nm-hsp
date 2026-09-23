@@ -123,6 +123,19 @@ func TestInactiveServiceNeedsNoProviderStatus(t *testing.T) {
 	}
 }
 
+func TestUnconfiguredNetBirdInstalledButInactive(t *testing.T) {
+	manager := newManager(
+		&fakeServices{states: map[string]serviceState{"netbird.service": {enabled: false, active: "inactive"}}},
+		&fakeProviderBackend{errs: map[model.VPNProviderID]error{model.VPNProviderNetBird: errors.New("must not be observed")}},
+		fakeInstalled{"netbird": true},
+	)
+
+	state := manager.Snapshot(context.Background())[1]
+	if !state.Installed || state.ServiceRunning || state.ConnectionState != "inactive" || state.StatusError != "" {
+		t.Fatalf("netbird state = %#v", state)
+	}
+}
+
 func TestActivateStartsServiceAndReturnsAuthenticationHandoff(t *testing.T) {
 	services := &fakeServices{states: map[string]serviceState{}}
 	backend := &fakeProviderBackend{
