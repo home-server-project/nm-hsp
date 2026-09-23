@@ -10,9 +10,7 @@ NetworkManager-HSP (`nm-hsp`) is a first-party Home Server Project terminal appl
 
 The project is intended to provide a modern-friendly, keyboard-driven interface for ordinary Ethernet and Wi-Fi configuration.
 
-## Project status
-
-Early development. `nm-hsp` includes interactive Ethernet and Wi-Fi management, hardened secret handling, and a friendly network diagnostics and guarded repair workflow.
+`nm-hsp` includes interactive Ethernet and Wi-Fi management, hardened secret handling, and a friendly network diagnostics and guarded repair workflow.
 
 ## Goals
 
