@@ -34,6 +34,16 @@ type snapshotErrMsg struct {
 	err error
 }
 
+type dashboardRefreshTickMsg struct{}
+
+type dashboardRefreshMsg struct {
+	snapshot model.Snapshot
+}
+
+type dashboardRefreshErrMsg struct {
+	err error
+}
+
 type ethernetProfileMsg struct {
 	profile model.EthernetProfile
 }
@@ -60,8 +70,9 @@ type Model struct {
 	height       int
 	cursor       int
 	expanded     bool
-	loading      bool
-	formLoading  bool
+	loading              bool
+	backgroundRefreshing bool
+	formLoading          bool
 	formSaving   bool
 	form         *ethernetForm
 	formBackMenu *ethernetActionMenu
@@ -96,9 +107,14 @@ func NewWithThemeSaver(source NetworkSource, mode ThemeMode, saveTheme func(Them
 	}
 }
 
-// Init requests the first NetworkManager snapshot.
+const (
+	dashboardRefreshInterval = 2 * time.Second
+	dashboardRefreshTimeout  = 4 * time.Second
+)
+
+// Init requests the first NetworkManager snapshot and starts quiet dashboard refreshes.
 func (m Model) Init() tea.Cmd {
-	return m.loadSnapshot()
+	return tea.Batch(m.loadSnapshot(), m.scheduleDashboardRefresh())
 }
 
 // Update handles dashboard navigation plus Ethernet and Wi-Fi management.
@@ -109,6 +125,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if _, ok := msg.(dashboardRefreshTickMsg); ok {
+		next := m.scheduleDashboardRefresh()
+		if m.dashboardRefreshBlocked() {
+			return m, next
+		}
+		m.backgroundRefreshing = true
+		return m, tea.Batch(next, m.loadDashboardRefresh())
 	}
 	if m.options != nil {
 		if m.options.update(msg) {
@@ -177,6 +201,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case snapshotErrMsg:
 		m.loading = false
 		m.err = msg.err
+
+	case dashboardRefreshMsg:
+		m.snapshot = msg.snapshot
+		m.backgroundRefreshing = false
+		m.err = nil
+		m.clampCursor()
+
+	case dashboardRefreshErrMsg:
+		m.backgroundRefreshing = false
 
 	case ethernetProfileMsg:
 		m.formLoading = false
@@ -331,6 +364,39 @@ func (m Model) loadSnapshot() tea.Cmd {
 		}
 		return snapshotMsg{snapshot: snapshot}
 	}
+}
+
+func (m Model) scheduleDashboardRefresh() tea.Cmd {
+	return tea.Tick(dashboardRefreshInterval, func(time.Time) tea.Msg {
+		return dashboardRefreshTickMsg{}
+	})
+}
+
+func (m Model) loadDashboardRefresh() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), dashboardRefreshTimeout)
+		defer cancel()
+
+		snapshot, err := m.source.Snapshot(ctx)
+		if err != nil {
+			return dashboardRefreshErrMsg{err: err}
+		}
+		return dashboardRefreshMsg{snapshot: snapshot}
+	}
+}
+
+func (m Model) dashboardRefreshBlocked() bool {
+	return m.loading ||
+		m.backgroundRefreshing ||
+		m.formLoading ||
+		m.formSaving ||
+		m.form != nil ||
+		m.formBackMenu != nil ||
+		m.ethernetMenu != nil ||
+		m.wifi != nil ||
+		m.vpn != nil ||
+		m.diagnostics != nil ||
+		m.options != nil
 }
 
 func (m Model) loadEthernetProfile(profilePath, devicePath string) tea.Cmd {
