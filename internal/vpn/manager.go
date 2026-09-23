@@ -49,8 +49,8 @@ type providerActionResult struct {
 
 type serviceManager interface {
 	UnitState(context.Context, string) (serviceState, error)
-	EnableAndStart(context.Context, string) error
-	StopAndDisable(context.Context, string) error
+	Start(context.Context, string) error
+	Stop(context.Context, string) error
 }
 
 type providerBackend interface {
@@ -105,7 +105,7 @@ func (m *Manager) Action(ctx context.Context, id model.VPNProviderID, action mod
 
 	switch action {
 	case model.VPNActionActivate:
-		if err := m.services.EnableAndStart(ctx, provider.service); err != nil {
+		if err := m.services.Start(ctx, provider.service); err != nil {
 			return model.VPNActionResult{}, fmt.Errorf("activate %s service: %w", provider.name, err)
 		}
 		return m.connect(ctx, provider)
@@ -138,10 +138,10 @@ func (m *Manager) Action(ctx context.Context, id model.VPNProviderID, action mod
 		return model.VPNActionResult{Message: provider.name + " disconnected. Service remains enabled."}, nil
 
 	case model.VPNActionDeactivate:
-		if err := m.services.StopAndDisable(ctx, provider.service); err != nil {
-			return model.VPNActionResult{}, fmt.Errorf("disable %s service: %w", provider.name, err)
+		if err := m.services.Stop(ctx, provider.service); err != nil {
+			return model.VPNActionResult{}, fmt.Errorf("deactivate %s service: %w", provider.name, err)
 		}
-		return model.VPNActionResult{Message: provider.name + " service stopped and disabled."}, nil
+		return model.VPNActionResult{Message: provider.name + " service stopped."}, nil
 
 	default:
 		return model.VPNActionResult{}, fmt.Errorf("unsupported private access action %q", action)
@@ -235,7 +235,9 @@ func (m *Manager) providerState(ctx context.Context, provider providerSpec) mode
 
 	state.ConnectionState = providerState.state
 	state.Connected = providerState.connected
-	state.Addresses = providerState.addresses
+	if state.Connected {
+		state.Addresses = providerState.addresses
+	}
 	return state
 }
 
