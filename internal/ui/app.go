@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/home-server-project/nm-hsp/internal/buildinfo"
 	"github.com/home-server-project/nm-hsp/internal/model"
 )
 
@@ -567,10 +568,17 @@ func (m Model) render() string {
 		Padding(0, 1).
 		Render(header))
 	out.WriteString("\n")
+	projectURL := mutedStyle.Render("https://github.com/home-server-project")
+	version := mutedStyle.Render(buildinfo.Version)
+	versionGap := contentWidth - lipgloss.Width(projectURL) - lipgloss.Width(version) - 2
+	if versionGap < 2 {
+		versionGap = 2
+	}
+	projectLine := projectURL + strings.Repeat(" ", versionGap) + version
 	out.WriteString(lipgloss.NewStyle().
 		Width(contentWidth).
 		Padding(0, 1).
-		Render(mutedStyle.Render("https://github.com/home-server-project")))
+		Render(projectLine))
 	out.WriteString("\n")
 	out.WriteString(m.renderStatus(contentWidth))
 
