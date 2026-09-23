@@ -4,104 +4,73 @@ Friendly terminal network manager for Home Server Project systems.
 
 ![nm-hsp terminal demo](docs/assets/nm-hsp-demo.gif)
 
-`nm-hsp` is a keyboard-driven TUI for common network tasks on headless and appliance-style Linux systems. It uses NetworkManager directly over D-Bus and keeps normal users away from interface names and low-level configuration where possible.
+`nm-hsp` is a keyboard-driven network manager for headless and appliance-style Linux systems. It uses NetworkManager directly and keeps common network tasks simple.
 
-## Features
+## What it does
 
-- Ethernet status and configuration
-- Wi-Fi scanning, connection, saved profiles, and radio control
-- DHCP or manual IPv4/IPv6 configuration
-- DNS, gateway, MTU, and autoconnect settings
-- Tailscale and NetBird status and local lifecycle controls
-- Friendly network diagnostics
-- Conservative, reviewed repair actions
-- Light and dark terminal themes
-- Read-only JSON snapshot with `nm-hsp --snapshot`
+- Shows live Ethernet and Wi-Fi status
+- Connects to Wi-Fi and manages saved networks
+- Configures DHCP or manual IP settings
+- Manages DNS, gateway, MTU, and autoconnect
+- Shows Tailscale and NetBird status when installed
+- Provides friendly network diagnostics and guarded repairs
+- Supports light and dark terminal themes
+- Exposes a read-only JSON snapshot with `nm-hsp --snapshot`
 
-## Run
+## Use
 
-Build and start the application:
+Start it with:
 
 ```bash
-go build -trimpath -o nm-hsp ./cmd/nm-hsp
-./nm-hsp
+nm-hsp
 ```
 
-Go 1.25 or newer is required for source builds.
-
-Home Server Project images are expected to consume packaged nm-hsp builds rather than asking users to build it manually.
-
-## Main controls
+Main controls:
 
 - Up/Down or `j`/`k` — move
-- Enter — open the selected device or action
-- `d` — show or hide device details
+- Enter — open the selected item
+- `d` — show or hide details
 - `r` — refresh
 - `o` — options and theme
 - `t` — network health and repair
 - Esc or `q` — back or exit
 
+Home Server Project systems are expected to use packaged builds. Homebrew packaging is maintained in the [Home Server Project tap](https://github.com/home-server-project/homebrew-tap).
+
 ## Ethernet
 
-Ethernet settings include DHCP or manual addressing, IPv4/IPv6, DNS, gateway, MTU, autoconnect, and saved profile management.
-
-nm-hsp updates only the fields it owns and preserves unrelated NetworkManager profile settings.
+See connection state, address information, and saved profiles. Configure automatic or manual IPv4/IPv6, DNS, gateway, MTU, and autoconnect without working directly with low-level NetworkManager settings.
 
 ## Wi-Fi
 
-The Wi-Fi manager can scan networks, connect to saved profiles, create common personal-network profiles, manage autoconnect priority, forget profiles, and control the Wi-Fi radio.
+Scan and connect to nearby networks, use saved profiles, manage autoconnect priority, forget networks, and control the Wi-Fi radio.
 
-Saved Wi-Fi passwords are not read back into the UI.
+Saved Wi-Fi passwords are not read back into the application.
 
 ## Private Access
 
-nm-hsp detects Tailscale and NetBird when installed.
+Tailscale and NetBird appear automatically when they are installed. nm-hsp can show their state and provide normal connect, disconnect, start, and stop controls.
 
-It can:
+See [Private Access details](docs/private-access.md) for service behavior and permissions.
 
-- show whether the provider service is enabled and running
-- show connection state and current VPN addresses
-- start an inactive provider service
-- connect or authenticate
-- disconnect while leaving the service running
-- stop the service for the current boot
+## Troubleshoot
 
-nm-hsp does not install VPN providers and does not own their boot policy. The operating system or product image decides whether `tailscaled.service` or `netbird.service` is enabled at boot.
+The network health screen follows the normal path from adapter to Internet connectivity and explains problems in normal-user language. Repair actions are intentionally limited and reviewed before they are applied.
 
-Packaged deployments can use the narrow Polkit rule in `contrib/polkit/49-nm-hsp-vpn.rules` so trusted users can start and stop only those two services without generic systemd control.
-
-## Network health and repair
-
-The diagnostics screen checks the normal path from adapter to Internet connectivity and explains problems in normal-user language.
-
-Repairs are deliberately limited. Every repair is reviewed before it is applied, and nm-hsp re-checks current state before writing.
-
-See [docs/diagnostics.md](docs/diagnostics.md) for the full diagnostic and repair model.
+See [Diagnostics and repair](docs/diagnostics.md) for the full model.
 
 ## Security
 
-nm-hsp uses NetworkManager D-Bus directly and does not pass Wi-Fi passwords through shell commands or process arguments.
+nm-hsp talks to NetworkManager directly over D-Bus and avoids putting Wi-Fi passwords into shell commands or process arguments.
 
-See [docs/security.md](docs/security.md) for credential-handling guarantees and limitations.
+See the [Security model](docs/security.md) for the full credential-handling design and limitations.
 
-## Source layout
+## More details
 
-- `cmd/nm-hsp` — application entry point
-- `internal/networkmanager` — NetworkManager integration
-- `internal/vpn` — Tailscale, NetBird, and systemd integration
-- `internal/ui` — terminal interface
-- `internal/diagnostics` — health and repair logic
-- `internal/security` — secret handling
-- `internal/validation` — input validation
-
-## Validation
-
-```bash
-gofmt -w .
-go vet ./...
-go test ./...
-go build -trimpath -o /tmp/nm-hsp ./cmd/nm-hsp
-```
+- [Development and source build](docs/development.md)
+- [Private Access](docs/private-access.md)
+- [Diagnostics and repair](docs/diagnostics.md)
+- [Security model](docs/security.md)
 
 ## License
 
