@@ -203,6 +203,7 @@ func TestRenderShowsFriendlyNetworkSummary(t *testing.T) {
 	output := m.render()
 	for _, want := range []string{
 		"NetworkManager-HSP",
+		"devel",
 		"Internet connected",
 		"Ethernet",
 		"enp2s0",
