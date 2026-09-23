@@ -55,15 +55,19 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.release.outputs.version }}"
-          mkdir -p dist work/amd64 work/arm64
+          mkdir -p dist work/amd64 work/arm64 bundle/amd64 bundle/arm64
 
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
             go build -trimpath -ldflags='-s -w' -o work/amd64/nm-hsp ./cmd/nm-hsp
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
             go build -trimpath -ldflags='-s -w' -o work/arm64/nm-hsp ./cmd/nm-hsp
 
+          install -Dm0755 work/amd64/nm-hsp bundle/amd64/nm-hsp
+          install -Dm0755 work/arm64/nm-hsp bundle/arm64/nm-hsp
+
           tar -C work/amd64 -czf "dist/nm-hsp_${version}_linux_amd64.tar.gz" nm-hsp
           tar -C work/arm64 -czf "dist/nm-hsp_${version}_linux_arm64.tar.gz" nm-hsp
+          tar -C bundle -czf "dist/nm-hsp_${version}_linux.tar.gz" amd64 arm64
 
           (
             cd dist
@@ -82,6 +86,7 @@ jobs:
           gh release upload "${{ steps.release.outputs.tag }}" \
             dist/nm-hsp_*_linux_amd64.tar.gz \
             dist/nm-hsp_*_linux_arm64.tar.gz \
+            dist/nm-hsp_*_linux.tar.gz \
             dist/SHA256SUMS \
             --clobber \
             --repo "${GITHUB_REPOSITORY}"
