@@ -7,6 +7,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/home-server-project/nm-hsp/internal/model"
 )
@@ -51,13 +52,18 @@ type fakeProviderBackend struct {
 	states      map[model.VPNProviderID]providerStatus
 	available   map[model.VPNProviderID]bool
 	errs        map[model.VPNProviderID]error
+	blockStatus map[model.VPNProviderID]bool
 	connect     map[model.VPNProviderID]providerActionResult
 	connectErr  map[model.VPNProviderID]error
 	disconnects []model.VPNProviderID
 	wait        map[model.VPNProviderID]providerActionResult
 }
 
-func (f *fakeProviderBackend) Status(_ context.Context, id model.VPNProviderID) (providerStatus, bool, error) {
+func (f *fakeProviderBackend) Status(ctx context.Context, id model.VPNProviderID) (providerStatus, bool, error) {
+	if f.blockStatus[id] {
+		<-ctx.Done()
+		return providerStatus{}, true, ctx.Err()
+	}
 	return f.states[id], f.available[id], f.errs[id]
 }
 
@@ -249,6 +255,43 @@ func TestProviderStatusFailureIsContained(t *testing.T) {
 	}
 	if states[1].ID != model.VPNProviderNetBird {
 		t.Fatalf("remaining provider was not collected: %#v", states)
+	}
+}
+
+func TestSnapshotBoundsSlowProviderIndependently(t *testing.T) {
+	manager := newManager(
+		&fakeServices{states: map[string]serviceState{
+			"tailscaled.service": {enabled: true, active: "active"},
+			"netbird.service":    {enabled: true, active: "active"},
+		}},
+		&fakeProviderBackend{
+			states: map[model.VPNProviderID]providerStatus{
+				model.VPNProviderTailscale: {state: "Running", connected: true},
+			},
+			available: map[model.VPNProviderID]bool{
+				model.VPNProviderTailscale: true,
+				model.VPNProviderNetBird:   true,
+			},
+			blockStatus: map[model.VPNProviderID]bool{
+				model.VPNProviderNetBird: true,
+			},
+		},
+		fakeInstalled{"tailscale": true, "netbird": true},
+	)
+	manager.snapshotTimeout = 25 * time.Millisecond
+
+	start := time.Now()
+	states := manager.Snapshot(context.Background())
+	elapsed := time.Since(start)
+
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("snapshot waited too long for slow provider: %v", elapsed)
+	}
+	if !states[0].Connected {
+		t.Fatalf("fast provider state was not preserved: %#v", states[0])
+	}
+	if states[1].StatusError == "" || states[1].ConnectionState != "unknown" {
+		t.Fatalf("slow provider should fail independently: %#v", states[1])
 	}
 }
 
