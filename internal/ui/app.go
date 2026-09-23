@@ -74,15 +74,15 @@ type Model struct {
 	backgroundRefreshing bool
 	formLoading          bool
 	formSaving           bool
-	form                  *ethernetForm
-	formBackMenu          *ethernetActionMenu
-	ethernetMenu          *ethernetActionMenu
-	wifi                  *wifiScreen
-	vpn                   *privateAccessScreen
-	diagnostics           *diagnosticsScreen
-	options               *optionsScreen
-	err                   error
-	notice                string
+	form                 *ethernetForm
+	formBackMenu         *ethernetActionMenu
+	ethernetMenu         *ethernetActionMenu
+	wifi                 *wifiScreen
+	vpn                  *privateAccessScreen
+	diagnostics          *diagnosticsScreen
+	options              *optionsScreen
+	err                  error
+	notice               string
 }
 
 // New creates the TUI model using the built-in dark-terminal theme.
