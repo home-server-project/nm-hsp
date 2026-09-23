@@ -644,7 +644,6 @@ func TestDiagnosticsJumpOpensWiFiManagerFromDashboard(t *testing.T) {
 	}
 }
 
-
 func TestDashboardBackgroundRefreshUpdatesEthernetState(t *testing.T) {
 	initial := sampleSnapshot()
 	source := &fakeSource{snapshot: initial}
