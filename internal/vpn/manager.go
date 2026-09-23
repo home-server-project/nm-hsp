@@ -135,7 +135,7 @@ func (m *Manager) Action(ctx context.Context, id model.VPNProviderID, action mod
 		if err := m.backend.Disconnect(ctx, provider.id); err != nil {
 			return model.VPNActionResult{}, fmt.Errorf("disconnect %s: %w", provider.name, err)
 		}
-		return model.VPNActionResult{Message: provider.name + " disconnected. Service remains enabled."}, nil
+		return model.VPNActionResult{Message: provider.name + " disconnected. Service remains running."}, nil
 
 	case model.VPNActionDeactivate:
 		if err := m.services.Stop(ctx, provider.service); err != nil {
