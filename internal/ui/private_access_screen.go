@@ -328,7 +328,6 @@ func (s *privateAccessScreen) currentActions() []privateAccessActionOption {
 	if provider.Connected {
 		return []privateAccessActionOption{
 			{label: "Disconnect (keep service enabled)", action: model.VPNActionDisconnect},
-			{label: "Reconnect", action: model.VPNActionReconnect},
 			{label: "Disable service", action: model.VPNActionDeactivate},
 		}
 	}
@@ -522,12 +521,12 @@ func renderPrivateAccessProvider(width int, provider model.VPNProviderState, sel
 	serviceLine := fmt.Sprintf("    Service     %s · %s", serviceEnabled, serviceState)
 	lines = append(lines, serviceLine)
 
-	connectionLabel := emptyFallback(provider.ConnectionState, "unknown")
+	connectionLabel := friendlyProviderConnectionState(provider)
 	switch {
 	case provider.Connected:
-		connectionLabel = goodStyle.Render("connected") + " · " + connectionLabel
+		connectionLabel = goodStyle.Render(connectionLabel)
 	case provider.ConnectionState == "unavailable":
-		connectionLabel = mutedStyle.Render("details unavailable")
+		connectionLabel = mutedStyle.Render(connectionLabel)
 	case provider.ServiceRunning:
 		connectionLabel = warningStyle.Render(connectionLabel)
 	default:
@@ -545,6 +544,28 @@ func renderPrivateAccessProvider(width int, provider model.VPNProviderState, sel
 	return style.Width(cardContentWidth(width)).Render(strings.Join(lines, "\n"))
 }
 
+func friendlyProviderConnectionState(provider model.VPNProviderState) string {
+	if provider.Connected {
+		return "connected"
+	}
+	if !provider.ServiceRunning {
+		return "disconnected"
+	}
+
+	switch strings.ToLower(strings.TrimSpace(provider.ConnectionState)) {
+	case "", "unknown", "nostate", "stopped", "idle":
+		return "disconnected"
+	case "needslogin", "loginfailed":
+		return "authentication required"
+	case "starting", "connecting":
+		return "connecting"
+	case "unavailable":
+		return "details unavailable"
+	default:
+		return "disconnected"
+	}
+}
+
 func privateAccessSummary(snapshot model.Snapshot) string {
 	if len(snapshot.VPN) == 0 {
 		return "Tailscale and NetBird status unavailable"
@@ -558,10 +579,8 @@ func privateAccessSummary(snapshot model.Snapshot) string {
 		case !provider.Installed:
 		case provider.Connected:
 			state = "connected"
-		case provider.ServiceRunning && provider.ConnectionState == "unavailable":
-			state = "running"
 		case provider.ServiceRunning:
-			state = emptyFallback(provider.ConnectionState, "running")
+			state = friendlyProviderConnectionState(provider)
 		default:
 			state = "stopped"
 		}
