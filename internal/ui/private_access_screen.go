@@ -27,6 +27,8 @@ type privateAccessSnapshotErrMsg struct {
 	err error
 }
 
+type privateAccessRefreshTickMsg struct{}
+
 type privateAccessActionMsg struct {
 	provider model.VPNProviderID
 	action   model.VPNAction
@@ -34,15 +36,6 @@ type privateAccessActionMsg struct {
 }
 
 type privateAccessActionErrMsg struct {
-	err error
-}
-
-type privateAccessConnectionMsg struct {
-	snapshot model.Snapshot
-	settled  bool
-}
-
-type privateAccessConnectionErrMsg struct {
 	err error
 }
 
@@ -76,18 +69,27 @@ type privateAccessScreen struct {
 	loading           bool
 	acting            bool
 	authWaiting       bool
-	waitingConnection bool
 	auth              *privateAccessAuthState
 	authCancel        context.CancelFunc
 	err               error
 	notice            string
 }
 
+const (
+	privateAccessRefreshInterval = 2 * time.Second
+	privateAccessSnapshotTimeout = 4 * time.Second
+	privateAccessActionTimeout   = 12 * time.Second
+)
+
 func newPrivateAccessScreen(source privateAccessSource, snapshot model.Snapshot) *privateAccessScreen {
 	return &privateAccessScreen{
 		source:   source,
 		snapshot: snapshot,
 	}
+}
+
+func (s *privateAccessScreen) init() tea.Cmd {
+	return s.scheduleRefresh()
 }
 
 func (s *privateAccessScreen) update(msg tea.Msg) (bool, tea.Cmd) {
@@ -102,12 +104,20 @@ func (s *privateAccessScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 		s.loading = false
 		s.err = msg.err
 
+	case privateAccessRefreshTickMsg:
+		next := s.scheduleRefresh()
+		if s.loading || s.auth != nil {
+			return false, next
+		}
+		s.loading = true
+		s.err = nil
+		return false, tea.Batch(next, s.loadSnapshot())
+
 	case privateAccessActionMsg:
 		s.err = nil
 		s.notice = msg.result.Message
 		if msg.result.AwaitingAuth {
 			s.acting = false
-			s.waitingConnection = false
 			s.auth = &privateAccessAuthState{
 				provider: msg.provider,
 				url:      msg.result.AuthURL,
@@ -115,37 +125,12 @@ func (s *privateAccessScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 			}
 			return false, s.startAuthenticationWait()
 		}
-		if actionWaitsForConnection(msg.action) {
-			s.acting = true
-			s.waitingConnection = true
-			s.loading = true
-			return false, s.waitForProviderConnection(msg.provider)
-		}
 		s.acting = false
-		s.waitingConnection = false
 		s.loading = true
 		return false, s.loadSnapshot()
 
 	case privateAccessActionErrMsg:
 		s.acting = false
-		s.waitingConnection = false
-		s.err = msg.err
-
-	case privateAccessConnectionMsg:
-		s.snapshot = msg.snapshot
-		s.acting = false
-		s.waitingConnection = false
-		s.loading = false
-		s.err = nil
-		s.clampCursors()
-		if !msg.settled {
-			s.notice = "Connection is still starting. Press r to refresh."
-		}
-
-	case privateAccessConnectionErrMsg:
-		s.acting = false
-		s.waitingConnection = false
-		s.loading = false
 		s.err = msg.err
 
 	case privateAccessAuthMsg:
@@ -262,7 +247,7 @@ func (s *privateAccessScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 
 func (s *privateAccessScreen) loadSnapshot() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), privateAccessSnapshotTimeout)
 		defer cancel()
 
 		snapshot, err := s.source.Snapshot(ctx)
@@ -275,7 +260,7 @@ func (s *privateAccessScreen) loadSnapshot() tea.Cmd {
 
 func (s *privateAccessScreen) runAction(id model.VPNProviderID, action model.VPNAction) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), privateAccessActionTimeout)
 		defer cancel()
 
 		result, err := s.source.VPNAction(ctx, id, action)
@@ -290,58 +275,10 @@ func (s *privateAccessScreen) runAction(id model.VPNProviderID, action model.VPN
 	}
 }
 
-func actionWaitsForConnection(action model.VPNAction) bool {
-	switch action {
-	case model.VPNActionActivate, model.VPNActionConnect, model.VPNActionReconnect:
-		return true
-	default:
-		return false
-	}
-}
-
-func (s *privateAccessScreen) waitForProviderConnection(id model.VPNProviderID) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-
-		ticker := time.NewTicker(250 * time.Millisecond)
-		defer ticker.Stop()
-
-		var last model.Snapshot
-		for {
-			snapshot, err := s.source.Snapshot(ctx)
-			if err != nil {
-				return privateAccessConnectionErrMsg{err: err}
-			}
-			last = snapshot
-			if providerConnectionSettled(snapshot, id) {
-				return privateAccessConnectionMsg{snapshot: snapshot, settled: true}
-			}
-
-			select {
-			case <-ctx.Done():
-				return privateAccessConnectionMsg{snapshot: last, settled: false}
-			case <-ticker.C:
-			}
-		}
-	}
-}
-
-func providerConnectionSettled(snapshot model.Snapshot, id model.VPNProviderID) bool {
-	for _, provider := range snapshot.VPN {
-		if provider.ID != id {
-			continue
-		}
-		if provider.Connected || provider.StatusError != "" {
-			return true
-		}
-		switch strings.ToLower(strings.TrimSpace(provider.ConnectionState)) {
-		case "needslogin", "loginfailed":
-			return true
-		}
-		return false
-	}
-	return false
+func (s *privateAccessScreen) scheduleRefresh() tea.Cmd {
+	return tea.Tick(privateAccessRefreshInterval, func(time.Time) tea.Msg {
+		return privateAccessRefreshTickMsg{}
+	})
 }
 
 func (s *privateAccessScreen) startAuthenticationWait() tea.Cmd {
@@ -475,21 +412,17 @@ func (s *privateAccessScreen) render(width, height int) string {
 		mutedStyle.Render("Local lifecycle controls only. Account and policy settings stay with the provider."),
 	))
 
-	if s.loading {
-		out.WriteString("\n\n  " + warningStyle.Render("Refreshing private access state..."))
-	} else {
+	out.WriteString("\n")
+	if len(s.snapshot.VPN) == 0 {
 		out.WriteString("\n")
-		if len(s.snapshot.VPN) == 0 {
+		out.WriteString(cardStyle.
+			Width(cardContentWidth(contentWidth)).
+			Padding(1, 2).
+			Render("Private access provider state is unavailable."))
+	} else {
+		for index, provider := range s.snapshot.VPN {
 			out.WriteString("\n")
-			out.WriteString(cardStyle.
-				Width(cardContentWidth(contentWidth)).
-				Padding(1, 2).
-				Render("Private access provider state is unavailable."))
-		} else {
-			for index, provider := range s.snapshot.VPN {
-				out.WriteString("\n")
-				out.WriteString(renderPrivateAccessProvider(contentWidth, provider, index == s.cursor))
-			}
+			out.WriteString(renderPrivateAccessProvider(contentWidth, provider, index == s.cursor))
 		}
 	}
 
@@ -505,14 +438,6 @@ func (s *privateAccessScreen) renderActions(width int) string {
 	if !ok {
 		return "Private Access"
 	}
-	if s.waitingConnection {
-		provider.ServiceState = "active"
-		provider.ServiceRunning = true
-		provider.ConnectionState = "connecting"
-		provider.Connected = false
-		provider.Addresses = nil
-	}
-
 	header := titleStyle.Render("Private Access · " + emptyFallback(provider.Name, string(provider.ID)))
 	out.WriteString(lipgloss.NewStyle().Width(width).Padding(0, 1).Render(header))
 	out.WriteString("\n\n")
@@ -537,11 +462,7 @@ func (s *privateAccessScreen) renderActions(width int) string {
 	}
 
 	if s.acting {
-		message := "Applying action..."
-		if s.waitingConnection {
-			message = "Waiting for connection..."
-		}
-		out.WriteString("\n  " + warningStyle.Render(message))
+		out.WriteString("\n  " + warningStyle.Render("Applying action..."))
 	}
 	s.renderMessages(&out)
 	out.WriteString("\n\n")
