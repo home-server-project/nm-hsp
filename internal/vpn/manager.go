@@ -9,17 +9,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/home-server-project/nm-hsp/internal/model"
 )
 
 // Manager owns the small, provider-neutral private-access lifecycle surface.
 type Manager struct {
-	providers []providerSpec
-	services  serviceManager
-	backend   providerBackend
-	installed executableDetector
+	providers       []providerSpec
+	services        serviceManager
+	backend         providerBackend
+	installed       executableDetector
+	snapshotTimeout time.Duration
 }
+
+const providerSnapshotTimeout = 2 * time.Second
 
 type providerSpec struct {
 	id         model.VPNProviderID
@@ -75,9 +80,10 @@ func newManager(services serviceManager, backend providerBackend, installed exec
 			{id: model.VPNProviderTailscale, name: "Tailscale", executable: "tailscale", service: "tailscaled.service"},
 			{id: model.VPNProviderNetBird, name: "NetBird", executable: "netbird", service: "netbird.service"},
 		},
-		services:  services,
-		backend:   backend,
-		installed: installed,
+		services:        services,
+		backend:         backend,
+		installed:       installed,
+		snapshotTimeout: providerSnapshotTimeout,
 	}
 }
 
@@ -85,10 +91,23 @@ func newManager(services serviceManager, backend providerBackend, installed exec
 // installed. Provider-specific failures are contained in StatusError and never
 // prevent the remaining provider states from being collected.
 func (m *Manager) Snapshot(ctx context.Context) []model.VPNProviderState {
-	states := make([]model.VPNProviderState, 0, len(m.providers))
-	for _, provider := range m.providers {
-		states = append(states, m.providerState(ctx, provider))
+	states := make([]model.VPNProviderState, len(m.providers))
+	var wg sync.WaitGroup
+	wg.Add(len(m.providers))
+
+	for index, provider := range m.providers {
+		index := index
+		provider := provider
+		go func() {
+			defer wg.Done()
+
+			providerCtx, cancel := context.WithTimeout(ctx, m.snapshotTimeout)
+			defer cancel()
+			states[index] = m.providerState(providerCtx, provider)
+		}()
 	}
+
+	wg.Wait()
 	return states
 }
 
