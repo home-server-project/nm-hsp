@@ -641,3 +641,52 @@ func TestDiagnosticsJumpOpensWiFiManagerFromDashboard(t *testing.T) {
 		t.Fatal("diagnostics jump should refresh nearby Wi-Fi networks")
 	}
 }
+
+
+func TestDashboardBackgroundRefreshUpdatesEthernetState(t *testing.T) {
+	initial := sampleSnapshot()
+	source := &fakeSource{snapshot: initial}
+	m := New(source)
+	m.snapshot = initial
+	m.loading = false
+
+	updatedSnapshot := sampleSnapshot()
+	updatedSnapshot.Devices[0].State = 30
+	updatedSnapshot.Devices[0].Carrier = boolPtr(false)
+	updatedSnapshot.Devices[0].IPv4 = model.IPConfig{}
+	updatedSnapshot.Devices[0].ActiveConnection = nil
+	source.snapshot = updatedSnapshot
+
+	msg := m.loadDashboardRefresh()()
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.snapshot.Devices[0].State != 30 {
+		t.Fatalf("Ethernet state = %d, want disconnected state 30", m.snapshot.Devices[0].State)
+	}
+	if m.snapshot.Devices[0].Carrier == nil || *m.snapshot.Devices[0].Carrier {
+		t.Fatalf("Ethernet carrier was not refreshed: %#v", m.snapshot.Devices[0].Carrier)
+	}
+	if len(m.snapshot.Devices[0].IPv4.Addresses) != 0 {
+		t.Fatalf("stale Ethernet IPv4 address remained: %#v", m.snapshot.Devices[0].IPv4.Addresses)
+	}
+}
+
+func TestDashboardRefreshTickIsQuietAndBackgroundOnly(t *testing.T) {
+	snapshot := sampleSnapshot()
+	m := New(&fakeSource{snapshot: snapshot})
+	m.snapshot = snapshot
+	m.loading = false
+
+	updated, cmd := m.Update(dashboardRefreshTickMsg{})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("dashboard refresh tick should schedule the next tick and a background snapshot")
+	}
+	if m.loading {
+		t.Fatal("background dashboard refresh must not replace the visible dashboard with loading state")
+	}
+	if !m.backgroundRefreshing {
+		t.Fatal("dashboard refresh tick should mark a background refresh in progress")
+	}
+}
