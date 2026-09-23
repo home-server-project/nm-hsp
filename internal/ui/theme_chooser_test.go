@@ -14,10 +14,10 @@ func TestThemeChooserSelectsLightAndRemember(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m = updated.(ThemeChooserModel)
-	if m.SelectedTheme() != ThemeLight || currentTheme != ThemeLight {
-		t.Fatalf("moving to light should preview it immediately: selected=%q current=%q", m.SelectedTheme(), currentTheme)
+	if m.SelectedTheme() != ThemeDark || currentTheme != ThemeDark {
+		t.Fatalf("moving cursor must not change selected theme: selected=%q current=%q", m.SelectedTheme(), currentTheme)
 	}
-	updated, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	updated, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace}))
 	m = updated.(ThemeChooserModel)
 	if m.SelectedTheme() != ThemeLight {
 		t.Fatalf("selected theme = %q, want light", m.SelectedTheme())
@@ -40,6 +40,21 @@ func TestThemeChooserSelectsLightAndRemember(t *testing.T) {
 	m = updated.(ThemeChooserModel)
 	if !m.Confirmed() || cmd == nil {
 		t.Fatal("Continue should confirm and quit")
+	}
+}
+
+func TestThemeChooserSpaceTogglesRemember(t *testing.T) {
+	m := NewThemeChooser()
+
+	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	m = updated.(ThemeChooserModel)
+	updated, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	m = updated.(ThemeChooserModel)
+	updated, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace}))
+	m = updated.(ThemeChooserModel)
+
+	if !m.RememberChoice() {
+		t.Fatal("Space should toggle Don't show this again")
 	}
 }
 
