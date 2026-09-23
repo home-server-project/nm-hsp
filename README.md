@@ -59,10 +59,29 @@ Controls:
 - Up/Down arrows or `j`/`k` — move between devices.
 - Enter on Ethernet — open the interactive Ethernet settings form.
 - Enter on Wi-Fi — open the interactive Wi-Fi manager.
+- `o` — open Options and change the saved terminal appearance.
 - `t` — open Network health & repair.
 - `d` — show or hide device details.
 - `r` — refresh NetworkManager state.
 - `q`, Esc, or Ctrl-C — exit.
+
+## VPN / Private Access
+
+nm-hsp detects Tailscale and NetBird when they are installed and exposes their local connection state in the dashboard.
+
+For supported providers, nm-hsp can:
+
+- Start an inactive provider service and then connect.
+- Connect or authenticate when the provider service is already running.
+- Disconnect while leaving the provider service running.
+- Stop the provider service for the current boot.
+- Read the provider's current addresses only while it is connected.
+
+The TUI itself always runs as the normal user. It does not use sudo, pkexec, a shell, or a privileged helper.
+
+Starting and stopping the provider service uses systemd's D-Bus API. Packaged/appliance deployments install `contrib/polkit/49-nm-hsp-vpn.rules`, which grants only the systemd `start` and `stop` operations for exactly `tailscaled.service` and `netbird.service` to trusted `wheel` or `nm-hsp` group members. The rule does not grant generic systemd unit control and does not permit enabling or disabling services at boot.
+
+Service boot policy remains owned by the operating system or product image.
 
 ## Interactive Ethernet settings
 
