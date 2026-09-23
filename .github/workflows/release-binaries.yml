@@ -1,0 +1,87 @@
+name: release-binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and upload, for example v0.2.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Linux release binaries
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          [[ "${tag}" == v* ]]
+          printf 'tag=%s\n' "${tag}" >> "${GITHUB_OUTPUT}"
+          printf 'version=%s\n' "${tag#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+          cache: false
+
+      - name: Test source
+        run: go test ./...
+
+      - name: Build release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.release.outputs.version }}"
+          mkdir -p dist work/amd64 work/arm64
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags='-s -w' -o work/amd64/nm-hsp ./cmd/nm-hsp
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags='-s -w' -o work/arm64/nm-hsp ./cmd/nm-hsp
+
+          tar -C work/amd64 -czf "dist/nm-hsp_${version}_linux_amd64.tar.gz" nm-hsp
+          tar -C work/arm64 -czf "dist/nm-hsp_${version}_linux_arm64.tar.gz" nm-hsp
+
+          (
+            cd dist
+            sha256sum ./*.tar.gz > SHA256SUMS
+          )
+
+      - name: Verify target release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "${{ steps.release.outputs.tag }}" --repo "${GITHUB_REPOSITORY}"
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.release.outputs.tag }}" \
+            dist/nm-hsp_*_linux_amd64.tar.gz \
+            dist/nm-hsp_*_linux_arm64.tar.gz \
+            dist/SHA256SUMS \
+            --clobber \
+            --repo "${GITHUB_REPOSITORY}"
