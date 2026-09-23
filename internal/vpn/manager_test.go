@@ -12,8 +12,8 @@ import (
 )
 
 type fakeServices struct {
-	states       map[string]serviceState
-	errs         map[string]error
+	states  map[string]serviceState
+	errs    map[string]error
 	started []string
 	stopped []string
 }
@@ -183,7 +183,7 @@ func TestActivateStartsServiceAndReturnsAuthenticationHandoff(t *testing.T) {
 	}
 }
 
-func TestDisconnectKeepsServiceEnabled(t *testing.T) {
+func TestDisconnectKeepsServiceRunning(t *testing.T) {
 	services := &fakeServices{states: map[string]serviceState{"tailscaled.service": {enabled: true, active: "active"}}}
 	backend := &fakeProviderBackend{}
 	manager := newManager(services, backend, fakeInstalled{"tailscale": true})
