@@ -45,14 +45,17 @@ func (m ThemeChooserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				m.previewCursorTheme()
 			}
 		case "down", "j", "tab":
 			if m.cursor < 3 {
 				m.cursor++
+				m.previewCursorTheme()
 			}
 		case "shift+tab":
 			if m.cursor > 0 {
 				m.cursor--
+				m.previewCursorTheme()
 			}
 		case " ", "enter":
 			switch m.cursor {
@@ -71,6 +74,17 @@ func (m ThemeChooserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *ThemeChooserModel) previewCursorTheme() {
+	switch m.cursor {
+	case 0:
+		m.selected = ThemeDark
+		ApplyTheme(m.selected)
+	case 1:
+		m.selected = ThemeLight
+		ApplyTheme(m.selected)
+	}
 }
 
 // View renders the chooser with the same cards, accent, muted text, and help
