@@ -37,6 +37,15 @@ type privateAccessActionErrMsg struct {
 	err error
 }
 
+type privateAccessConnectionMsg struct {
+	snapshot model.Snapshot
+	settled  bool
+}
+
+type privateAccessConnectionErrMsg struct {
+	err error
+}
+
 type privateAccessAuthMsg struct {
 	provider model.VPNProviderID
 	result   model.VPNActionResult
@@ -58,19 +67,20 @@ type privateAccessAuthState struct {
 }
 
 type privateAccessScreen struct {
-	source       privateAccessSource
-	snapshot     model.Snapshot
-	cursor       int
-	actionCursor int
-	selectedID   model.VPNProviderID
-	inActions    bool
-	loading      bool
-	acting       bool
-	authWaiting  bool
-	auth         *privateAccessAuthState
-	authCancel   context.CancelFunc
-	err          error
-	notice       string
+	source            privateAccessSource
+	snapshot          model.Snapshot
+	cursor            int
+	actionCursor      int
+	selectedID        model.VPNProviderID
+	inActions         bool
+	loading           bool
+	acting            bool
+	authWaiting       bool
+	waitingConnection bool
+	auth              *privateAccessAuthState
+	authCancel        context.CancelFunc
+	err               error
+	notice            string
 }
 
 func newPrivateAccessScreen(source privateAccessSource, snapshot model.Snapshot) *privateAccessScreen {
@@ -93,10 +103,11 @@ func (s *privateAccessScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 		s.err = msg.err
 
 	case privateAccessActionMsg:
-		s.acting = false
 		s.err = nil
 		s.notice = msg.result.Message
 		if msg.result.AwaitingAuth {
+			s.acting = false
+			s.waitingConnection = false
 			s.auth = &privateAccessAuthState{
 				provider: msg.provider,
 				url:      msg.result.AuthURL,
@@ -104,11 +115,37 @@ func (s *privateAccessScreen) update(msg tea.Msg) (bool, tea.Cmd) {
 			}
 			return false, s.startAuthenticationWait()
 		}
+		if actionWaitsForConnection(msg.action) {
+			s.acting = true
+			s.waitingConnection = true
+			s.loading = true
+			return false, s.waitForProviderConnection(msg.provider)
+		}
+		s.acting = false
+		s.waitingConnection = false
 		s.loading = true
 		return false, s.loadSnapshot()
 
 	case privateAccessActionErrMsg:
 		s.acting = false
+		s.waitingConnection = false
+		s.err = msg.err
+
+	case privateAccessConnectionMsg:
+		s.snapshot = msg.snapshot
+		s.acting = false
+		s.waitingConnection = false
+		s.loading = false
+		s.err = nil
+		s.clampCursors()
+		if !msg.settled {
+			s.notice = "Connection is still starting. Press r to refresh."
+		}
+
+	case privateAccessConnectionErrMsg:
+		s.acting = false
+		s.waitingConnection = false
+		s.loading = false
 		s.err = msg.err
 
 	case privateAccessAuthMsg:
@@ -251,6 +288,60 @@ func (s *privateAccessScreen) runAction(id model.VPNProviderID, action model.VPN
 			result:   result,
 		}
 	}
+}
+
+func actionWaitsForConnection(action model.VPNAction) bool {
+	switch action {
+	case model.VPNActionActivate, model.VPNActionConnect, model.VPNActionReconnect:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *privateAccessScreen) waitForProviderConnection(id model.VPNProviderID) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+
+		var last model.Snapshot
+		for {
+			snapshot, err := s.source.Snapshot(ctx)
+			if err != nil {
+				return privateAccessConnectionErrMsg{err: err}
+			}
+			last = snapshot
+			if providerConnectionSettled(snapshot, id) {
+				return privateAccessConnectionMsg{snapshot: snapshot, settled: true}
+			}
+
+			select {
+			case <-ctx.Done():
+				return privateAccessConnectionMsg{snapshot: last, settled: false}
+			case <-ticker.C:
+			}
+		}
+	}
+}
+
+func providerConnectionSettled(snapshot model.Snapshot, id model.VPNProviderID) bool {
+	for _, provider := range snapshot.VPN {
+		if provider.ID != id {
+			continue
+		}
+		if provider.Connected || provider.StatusError != "" {
+			return true
+		}
+		switch strings.ToLower(strings.TrimSpace(provider.ConnectionState)) {
+		case "needslogin", "loginfailed":
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 func (s *privateAccessScreen) startAuthenticationWait() tea.Cmd {
@@ -414,6 +505,13 @@ func (s *privateAccessScreen) renderActions(width int) string {
 	if !ok {
 		return "Private Access"
 	}
+	if s.waitingConnection {
+		provider.ServiceState = "active"
+		provider.ServiceRunning = true
+		provider.ConnectionState = "connecting"
+		provider.Connected = false
+		provider.Addresses = nil
+	}
 
 	header := titleStyle.Render("Private Access · " + emptyFallback(provider.Name, string(provider.ID)))
 	out.WriteString(lipgloss.NewStyle().Width(width).Padding(0, 1).Render(header))
@@ -439,7 +537,11 @@ func (s *privateAccessScreen) renderActions(width int) string {
 	}
 
 	if s.acting {
-		out.WriteString("\n  " + warningStyle.Render("Applying action..."))
+		message := "Applying action..."
+		if s.waitingConnection {
+			message = "Waiting for connection..."
+		}
+		out.WriteString("\n  " + warningStyle.Render(message))
 	}
 	s.renderMessages(&out)
 	out.WriteString("\n\n")
