@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/home-server-project/nm-hsp/internal/buildinfo"
 	"github.com/home-server-project/nm-hsp/internal/model"
 )
 
@@ -34,6 +35,16 @@ type snapshotErrMsg struct {
 	err error
 }
 
+type dashboardRefreshTickMsg struct{}
+
+type dashboardRefreshMsg struct {
+	snapshot model.Snapshot
+}
+
+type dashboardRefreshErrMsg struct {
+	err error
+}
+
 type ethernetProfileMsg struct {
 	profile model.EthernetProfile
 }
@@ -52,26 +63,27 @@ type ethernetSaveErrMsg struct {
 
 // Model is the NetworkManager-HSP terminal interface.
 type Model struct {
-	source       NetworkSource
-	theme        ThemeMode
-	saveTheme    themePreferenceSaver
-	snapshot     model.Snapshot
-	width        int
-	height       int
-	cursor       int
-	expanded     bool
-	loading      bool
-	formLoading  bool
-	formSaving   bool
-	form         *ethernetForm
-	formBackMenu *ethernetActionMenu
-	ethernetMenu *ethernetActionMenu
-	wifi         *wifiScreen
-	vpn          *privateAccessScreen
-	diagnostics  *diagnosticsScreen
-	options      *optionsScreen
-	err          error
-	notice       string
+	source               NetworkSource
+	theme                ThemeMode
+	saveTheme            themePreferenceSaver
+	snapshot             model.Snapshot
+	width                int
+	height               int
+	cursor               int
+	expanded             bool
+	loading              bool
+	backgroundRefreshing bool
+	formLoading          bool
+	formSaving           bool
+	form                 *ethernetForm
+	formBackMenu         *ethernetActionMenu
+	ethernetMenu         *ethernetActionMenu
+	wifi                 *wifiScreen
+	vpn                  *privateAccessScreen
+	diagnostics          *diagnosticsScreen
+	options              *optionsScreen
+	err                  error
+	notice               string
 }
 
 // New creates the TUI model using the built-in dark-terminal theme.
@@ -96,9 +108,14 @@ func NewWithThemeSaver(source NetworkSource, mode ThemeMode, saveTheme func(Them
 	}
 }
 
-// Init requests the first NetworkManager snapshot.
+const (
+	dashboardRefreshInterval = 2 * time.Second
+	dashboardRefreshTimeout  = 4 * time.Second
+)
+
+// Init requests the first NetworkManager snapshot and starts quiet dashboard refreshes.
 func (m Model) Init() tea.Cmd {
-	return m.loadSnapshot()
+	return tea.Batch(m.loadSnapshot(), m.scheduleDashboardRefresh())
 }
 
 // Update handles dashboard navigation plus Ethernet and Wi-Fi management.
@@ -109,6 +126,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if _, ok := msg.(dashboardRefreshTickMsg); ok {
+		next := m.scheduleDashboardRefresh()
+		if m.dashboardRefreshBlocked() {
+			return m, next
+		}
+		m.backgroundRefreshing = true
+		return m, tea.Batch(next, m.loadDashboardRefresh())
 	}
 	if m.options != nil {
 		if m.options.update(msg) {
@@ -177,6 +202,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case snapshotErrMsg:
 		m.loading = false
 		m.err = msg.err
+
+	case dashboardRefreshMsg:
+		m.snapshot = msg.snapshot
+		m.backgroundRefreshing = false
+		m.err = nil
+		m.clampCursor()
+
+	case dashboardRefreshErrMsg:
+		m.backgroundRefreshing = false
 
 	case ethernetProfileMsg:
 		m.formLoading = false
@@ -263,7 +297,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			devices := m.visibleDevices()
 			if m.cursor == len(devices) {
 				m.vpn = newPrivateAccessScreen(m.source, m.snapshot)
-				return m, nil
+				return m, m.vpn.init()
 			}
 			if m.cursor == len(devices)+1 {
 				m.diagnostics = newDiagnosticsScreen(m.source)
@@ -331,6 +365,39 @@ func (m Model) loadSnapshot() tea.Cmd {
 		}
 		return snapshotMsg{snapshot: snapshot}
 	}
+}
+
+func (m Model) scheduleDashboardRefresh() tea.Cmd {
+	return tea.Tick(dashboardRefreshInterval, func(time.Time) tea.Msg {
+		return dashboardRefreshTickMsg{}
+	})
+}
+
+func (m Model) loadDashboardRefresh() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), dashboardRefreshTimeout)
+		defer cancel()
+
+		snapshot, err := m.source.Snapshot(ctx)
+		if err != nil {
+			return dashboardRefreshErrMsg{err: err}
+		}
+		return dashboardRefreshMsg{snapshot: snapshot}
+	}
+}
+
+func (m Model) dashboardRefreshBlocked() bool {
+	return m.loading ||
+		m.backgroundRefreshing ||
+		m.formLoading ||
+		m.formSaving ||
+		m.form != nil ||
+		m.formBackMenu != nil ||
+		m.ethernetMenu != nil ||
+		m.wifi != nil ||
+		m.vpn != nil ||
+		m.diagnostics != nil ||
+		m.options != nil
 }
 
 func (m Model) loadEthernetProfile(profilePath, devicePath string) tea.Cmd {
@@ -501,10 +568,17 @@ func (m Model) render() string {
 		Padding(0, 1).
 		Render(header))
 	out.WriteString("\n")
+	projectURL := mutedStyle.Render("https://github.com/home-server-project")
+	version := mutedStyle.Render(buildinfo.Version)
+	versionGap := contentWidth - lipgloss.Width(projectURL) - lipgloss.Width(version) - 2
+	if versionGap < 2 {
+		versionGap = 2
+	}
+	projectLine := projectURL + strings.Repeat(" ", versionGap) + version
 	out.WriteString(lipgloss.NewStyle().
 		Width(contentWidth).
 		Padding(0, 1).
-		Render(mutedStyle.Render("https://github.com/home-server-project")))
+		Render(projectLine))
 	out.WriteString("\n")
 	out.WriteString(m.renderStatus(contentWidth))
 
@@ -613,8 +687,9 @@ func (m Model) renderPrivateAccessCard(width int, selected bool) string {
 		marker = "› "
 	}
 	body := fmt.Sprintf(
-		"%s%s\n    %s",
+		"%s%s  %s\n    %s",
 		marker,
+		renderDashboardIcon("◆", vpnDashboardIconState(m.snapshot)),
 		titleStyle.Render("VPN / Private Access"),
 		mutedStyle.Render(privateAccessSummary(m.snapshot)),
 	)
@@ -629,8 +704,9 @@ func (m Model) renderTroubleshootCard(width int, selected bool) string {
 		marker = "› "
 	}
 	body := fmt.Sprintf(
-		"%s%s\n    %s",
+		"%s%s  %s\n    %s",
 		marker,
+		titleStyle.Render("◇"),
 		titleStyle.Render("Troubleshoot"),
 		mutedStyle.Render("Network health, diagnostics, and safe repair"),
 	)
@@ -646,10 +722,13 @@ func (m Model) renderDevice(width int, device model.Device, selected bool) strin
 	}
 
 	label := "Ethernet"
+	icon := "↔"
 	if device.Kind == model.DeviceKindWiFi {
 		label = "Wi-Fi"
+		icon = "≋"
 	}
 
+	icon = renderDashboardIcon(icon, deviceDashboardIconState(m.snapshot, device))
 	state := renderDeviceState(device.State)
 	ipv4 := emptyFallback(firstAddress(device.IPv4), "—")
 	profile := "No active profile"
@@ -660,8 +739,9 @@ func (m Model) renderDevice(width int, device model.Device, selected bool) strin
 	var summary string
 	if width >= 76 {
 		summary = fmt.Sprintf(
-			"%s%s  %s\n    %s   IPv4 %s   %s",
+			"%s%s  %s  %s\n    %s   IPv4 %s   %s",
 			marker,
+			icon,
 			titleStyle.Render(label+" · "+emptyFallback(device.Interface, "unknown")),
 			state,
 			mutedStyle.Render(profile),
@@ -670,8 +750,9 @@ func (m Model) renderDevice(width int, device model.Device, selected bool) strin
 		)
 	} else {
 		summary = fmt.Sprintf(
-			"%s%s  %s\n    %s\n    IPv4 %s\n    %s",
+			"%s%s  %s  %s\n    %s\n    IPv4 %s\n    %s",
 			marker,
+			icon,
 			titleStyle.Render(label+" · "+emptyFallback(device.Interface, "unknown")),
 			state,
 			mutedStyle.Render(profile),
@@ -719,6 +800,68 @@ func (m Model) renderHelp(width int) string {
 		Render(help)
 }
 
+type dashboardIconState uint8
+
+const (
+	dashboardIconMuted dashboardIconState = iota
+	dashboardIconGood
+	dashboardIconError
+)
+
+func renderDashboardIcon(symbol string, state dashboardIconState) string {
+	switch state {
+	case dashboardIconGood:
+		return goodStyle.Render(symbol)
+	case dashboardIconError:
+		return errorStyle.Render(symbol)
+	default:
+		return mutedStyle.Render(symbol)
+	}
+}
+
+func deviceDashboardIconState(snapshot model.Snapshot, device model.Device) dashboardIconState {
+	if device.Kind == model.DeviceKindWiFi && !snapshot.WirelessEnabled {
+		return dashboardIconError
+	}
+	if device.Kind == model.DeviceKindEthernet && device.Carrier != nil && !*device.Carrier {
+		return dashboardIconMuted
+	}
+	if device.State == 120 {
+		return dashboardIconError
+	}
+	if device.State == 100 && device.ActiveConnection != nil {
+		return dashboardIconGood
+	}
+	return dashboardIconMuted
+}
+
+func vpnDashboardIconState(snapshot model.Snapshot) dashboardIconState {
+	for _, provider := range snapshot.VPN {
+		if provider.StatusError != "" {
+			return dashboardIconError
+		}
+	}
+	for _, provider := range snapshot.VPN {
+		if provider.Connected {
+			return dashboardIconGood
+		}
+	}
+	return dashboardIconMuted
+}
+
+func wifiSignalBars(signal uint8) string {
+	switch {
+	case signal < 25:
+		return "▂"
+	case signal < 50:
+		return "▂▄"
+	case signal < 75:
+		return "▂▄▆"
+	default:
+		return "▂▄▆█"
+	}
+}
+
 func renderDeviceState(state uint32) string {
 	switch state {
 	case 100:
@@ -739,7 +882,12 @@ func deviceExtra(device model.Device) string {
 			return ""
 		}
 		if device.Wireless.SSID != "" {
-			return fmt.Sprintf("%s · %d%% signal", device.Wireless.SSID, device.Wireless.Signal)
+			return fmt.Sprintf(
+				"%s · %s %d%% signal",
+				device.Wireless.SSID,
+				goodStyle.Render(wifiSignalBars(device.Wireless.Signal)),
+				device.Wireless.Signal,
+			)
 		}
 		return "not associated"
 

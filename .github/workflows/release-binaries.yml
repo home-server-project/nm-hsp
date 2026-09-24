@@ -57,10 +57,12 @@ jobs:
           version="${{ steps.release.outputs.version }}"
           mkdir -p dist work/amd64 work/arm64 bundle/amd64 bundle/arm64
 
+          ldflags="-s -w -X github.com/home-server-project/nm-hsp/internal/buildinfo.Version=${{ steps.release.outputs.tag }}"
+
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-            go build -trimpath -ldflags='-s -w' -o work/amd64/nm-hsp ./cmd/nm-hsp
+            go build -trimpath -ldflags="${ldflags}" -o work/amd64/nm-hsp ./cmd/nm-hsp
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
-            go build -trimpath -ldflags='-s -w' -o work/arm64/nm-hsp ./cmd/nm-hsp
+            go build -trimpath -ldflags="${ldflags}" -o work/arm64/nm-hsp ./cmd/nm-hsp
 
           install -Dm0755 work/amd64/nm-hsp bundle/amd64/nm-hsp
           install -Dm0755 work/arm64/nm-hsp bundle/arm64/nm-hsp

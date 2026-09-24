@@ -157,14 +157,14 @@ func TestProviderActionUsesSelectedProvider(t *testing.T) {
 	}
 }
 
-func TestConnectActionWaitsForSettledProviderState(t *testing.T) {
+func TestConnectActionRefreshesWithoutBlockingForSettledState(t *testing.T) {
 	initial := privateAccessTestSnapshot()
 	initial.VPN[0].Connected = false
 	initial.VPN[0].ConnectionState = "Stopped"
 
-	settled := privateAccessTestSnapshot()
+	refreshed := privateAccessTestSnapshot()
 	source := &fakeSource{
-		snapshot: settled,
+		snapshot: refreshed,
 		vpnActionResult: model.VPNActionResult{
 			Message: "connection requested",
 		},
@@ -176,42 +176,40 @@ func TestConnectActionWaitsForSettledProviderState(t *testing.T) {
 
 	_, actionCmd := screen.update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	actionMsg := actionCmd()
-	_, settleCmd := screen.update(actionMsg)
-	if settleCmd == nil || !screen.acting || !screen.waitingConnection {
-		t.Fatal("connect should wait for provider state to settle")
+	_, refreshCmd := screen.update(actionMsg)
+	if refreshCmd == nil || screen.acting || !screen.loading {
+		t.Fatal("connect result should return control and start a normal background refresh")
 	}
 
-	output := screen.render(96, 30)
-	if !strings.Contains(output, "connecting") || !strings.Contains(output, "Waiting for connection") {
-		t.Fatalf("connecting state missing: %q", output)
-	}
-
-	_, next := screen.update(settleCmd())
-	if next != nil || screen.acting || screen.waitingConnection {
-		t.Fatal("settled provider state should finish the wait")
+	_, next := screen.update(refreshCmd())
+	if next != nil || screen.loading {
+		t.Fatal("refresh should finish without a second settled-state wait")
 	}
 	if !screen.snapshot.VPN[0].Connected {
-		t.Fatalf("settled snapshot not applied: %#v", screen.snapshot.VPN[0])
+		t.Fatalf("refreshed provider state not applied: %#v", screen.snapshot.VPN[0])
 	}
 }
 
-func TestProviderConnectionSettled(t *testing.T) {
-	base := privateAccessTestSnapshot()
-	base.VPN[0].Connected = false
-	base.VPN[0].ConnectionState = "Starting"
-	if providerConnectionSettled(base, model.VPNProviderTailscale) {
-		t.Fatal("Starting should not be settled")
-	}
+func TestPrivateAccessRefreshDoesNotHideCurrentState(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
+	screen := newPrivateAccessScreen(&fakeSource{snapshot: snapshot}, snapshot)
+	screen.loading = true
 
-	base.VPN[0].ConnectionState = "NeedsLogin"
-	if !providerConnectionSettled(base, model.VPNProviderTailscale) {
-		t.Fatal("NeedsLogin should be settled")
+	output := screen.render(96, 30)
+	for _, want := range []string{"Tailscale", "connected", "100.64.0.10", "NetBird"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("background refresh hid %q from current state: %q", want, output)
+		}
 	}
+}
 
-	base.VPN[0].ConnectionState = "Running"
-	base.VPN[0].Connected = true
-	if !providerConnectionSettled(base, model.VPNProviderTailscale) {
-		t.Fatal("connected should be settled")
+func TestPrivateAccessRefreshTickStartsBackgroundLoad(t *testing.T) {
+	snapshot := privateAccessTestSnapshot()
+	screen := newPrivateAccessScreen(&fakeSource{snapshot: snapshot}, snapshot)
+
+	closeScreen, cmd := screen.update(privateAccessRefreshTickMsg{})
+	if closeScreen || cmd == nil || !screen.loading {
+		t.Fatal("refresh tick should keep the screen open and start a background load")
 	}
 }
 

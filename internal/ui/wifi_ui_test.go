@@ -401,3 +401,108 @@ func TestConnectedWiFiForgetConfirmationExplainsDisconnect(t *testing.T) {
 		t.Fatalf("connected forget confirmation = %q", output)
 	}
 }
+
+func TestWiFiBackgroundRefreshDoesNotRequestActiveScan(t *testing.T) {
+	snapshot := sampleSnapshot()
+	source := &fakeSource{
+		snapshot: snapshot,
+		wifiNetworks: []model.WiFiNetwork{
+			{
+				ObjectPath:    "/ap/home",
+				SSID:          "Home",
+				BSSID:         "AA:BB:CC:DD:EE:01",
+				Strength:      72,
+				KeyManagement: "wpa-psk",
+			},
+		},
+	}
+	screen := newWiFiScreen(source, snapshot.Devices[1], snapshot)
+	screen.loading = false
+
+	msg := screen.backgroundRefresh()()
+	if _, ok := msg.(wifiBackgroundRefreshMsg); !ok {
+		t.Fatalf("background refresh returned %T, want wifiBackgroundRefreshMsg", msg)
+	}
+	if source.wifiScanRequests != 0 {
+		t.Fatalf("background refresh requested %d active scans, want 0", source.wifiScanRequests)
+	}
+}
+
+func TestWiFiBackgroundRefreshPreservesSelectedNetworkAcrossSignalReorder(t *testing.T) {
+	snapshot := sampleSnapshot()
+	source := &fakeSource{
+		snapshot: snapshot,
+		wifiNetworks: []model.WiFiNetwork{
+			{
+				ObjectPath:    "/ap/home",
+				SSID:          "Home",
+				BSSID:         "AA:BB:CC:DD:EE:01",
+				Strength:      80,
+				KeyManagement: "wpa-psk",
+			},
+			{
+				ObjectPath:    "/ap/guest",
+				SSID:          "Guest",
+				BSSID:         "AA:BB:CC:DD:EE:02",
+				Strength:      60,
+				KeyManagement: "wpa-psk",
+			},
+		},
+	}
+	screen := newWiFiScreen(source, snapshot.Devices[1], snapshot)
+	screen.loading = false
+	screen.networks = append([]model.WiFiNetwork(nil), source.wifiNetworks...)
+	screen.rebuildItems()
+	screen.cursor = 1
+
+	selected, ok := screen.mainSelectedItem()
+	if !ok || selected.network == nil || selected.network.SSID != "Home" {
+		t.Fatalf("initial selection = %#v", selected)
+	}
+
+	source.wifiNetworks = []model.WiFiNetwork{
+		{
+			ObjectPath:    "/ap/home",
+			SSID:          "Home",
+			BSSID:         "AA:BB:CC:DD:EE:01",
+			Strength:      15,
+			KeyManagement: "wpa-psk",
+		},
+		{
+			ObjectPath:    "/ap/guest",
+			SSID:          "Guest",
+			BSSID:         "AA:BB:CC:DD:EE:02",
+			Strength:      95,
+			KeyManagement: "wpa-psk",
+		},
+	}
+
+	msg := screen.backgroundRefresh()()
+	_, _ = screen.update(msg)
+
+	selected, ok = screen.mainSelectedItem()
+	if !ok || selected.network == nil || selected.network.SSID != "Home" {
+		t.Fatalf("selection changed after signal reorder: %#v", selected)
+	}
+	if selected.network.Strength != 15 {
+		t.Fatalf("selected network strength = %d, want refreshed value 15", selected.network.Strength)
+	}
+	if source.wifiScanRequests != 0 {
+		t.Fatalf("background refresh requested %d active scans, want 0", source.wifiScanRequests)
+	}
+}
+
+func TestWiFiBackgroundRefreshTickDoesNotEnterLoadingState(t *testing.T) {
+	snapshot := sampleSnapshot()
+	source := &fakeSource{snapshot: snapshot}
+	screen := newWiFiScreen(source, snapshot.Devices[1], snapshot)
+	screen.loading = false
+
+	closeScreen, cmd := screen.update(wifiBackgroundRefreshTickMsg{})
+	if closeScreen || cmd == nil {
+		t.Fatal("background Wi-Fi tick should keep the screen open and schedule work")
+	}
+	if screen.loading {
+		t.Fatal("background Wi-Fi refresh must not replace the visible network list with loading state")
+	}
+}
