@@ -1,10 +1,10 @@
 # NetworkManager-HSP
 
-Friendly terminal network manager for Home Server Project systems.
+Friendly terminal network manager for Linux systems.
 
 ![nm-hsp terminal demo](docs/assets/nm-hsp-demo.gif)
 
-`nm-hsp` is a keyboard-driven network manager for headless and appliance-style Linux systems. It uses NetworkManager directly and keeps common network tasks simple.
+`nm-hsp` is a keyboard-driven NetworkManager interface for servers, homelabs, and Linux workstations. It uses NetworkManager directly and keeps common network tasks simple.
 
 ## What it does
 
@@ -35,7 +35,7 @@ Main controls:
 - `t` — network health and repair
 - Esc or `q` — back or exit
 
-Home Server Project systems are expected to use packaged builds. Homebrew packaging is maintained in the [Home Server Project tap](https://github.com/home-server-project/homebrew-tap).
+Home Server Project maintains packaged builds for its own systems. Homebrew packaging is available through the [Home Server Project tap](https://github.com/home-server-project/homebrew-tap). For other systems, see [Development and source build](docs/development.md).
 
 ## Ethernet
 
