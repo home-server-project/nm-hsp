@@ -17,6 +17,26 @@ Friendly terminal network manager for Linux systems.
 - Supports light and dark terminal themes
 - Exposes a read-only JSON snapshot with `nm-hsp --snapshot`
 
+## Install
+
+### Homebrew
+
+On Linux with Homebrew installed:
+
+```bash
+brew install home-server-project/tap/nm-hsp
+```
+
+Then launch:
+
+```bash
+nm-hsp
+```
+
+NetworkManager must be installed and running on the host.
+
+The Homebrew formula is maintained in the [Home Server Project tap](https://github.com/home-server-project/homebrew-tap).
+
 ## Use
 
 Start it with:
